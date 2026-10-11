@@ -1,0 +1,4 @@
+[submodule "FFXIVClientStructs"]
+	path = FFXIVClientStructs
+	url = git@github.com:raineaeternal/FFXIVClientStructs.git
+	branch = feat/mahjong

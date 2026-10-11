@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
+    <Author>Raine Aeternal</Author>
+    <Name>Ukeire</Name>
+    <Punchline>A Doman Mahjong tutor: hand analysis, reviews and hints that never play for you.</Punchline>
+    <Description>Ukeire watches your Doman Mahjong table and helps you learn Riichi strategy.
+It shows shanten and tile acceptance, reviews each discard after you make it, warns about dangerous tiles when an opponent is in riichi, and points out yaku you can aim for.
+Hints come in tiers (nudge, pointer, answer) and only appear when you ask. The plugin never clicks, discards or calls for you, and it only reads what you can already see at the table.</Description>
+    <Tags>mahjong;doman;riichi;gold saucer;tutor</Tags>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Use_Dalamud_FFXIVClientStructs>false</Use_Dalamud_FFXIVClientStructs>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FFXIVClientStructs\FFXIVClientStructs\FFXIVClientStructs.csproj" />
+    <ProjectReference Include="..\FFXIVClientStructs\InteropGenerator.Runtime\InteropGenerator.Runtime.csproj" />
+  </ItemGroup>
+</Project>
