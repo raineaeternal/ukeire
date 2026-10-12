@@ -24,6 +24,9 @@ public sealed class HandAnalysis
     public required bool OpenWithoutYaku { get; init; }
     public required List<ThreatReading> Threats { get; init; }
 
+    /// <summary>Waits that are already in the player's own discard pile. Empty unless tenpai off-turn.</summary>
+    public IReadOnlyList<int> FuritenWaits { get; init; } = [];
+
     public static HandAnalysis Build(TableSnapshot snap, TableContext ctx)
     {
         var visible = snap.VisibleOutsideHand(ctx.DoraIndicators);
@@ -53,6 +56,13 @@ public sealed class HandAnalysis
             threats.Add(new ThreatReading(seat, Safety.ReadHand(snap.Hand, snap.DiscardCounts(seat), seen)));
         }
 
+        var furiten = new List<int>();
+        if (shanten.IsTenpai && accepts != null)
+        {
+            var own = snap.DiscardCounts(snap.LocalSeat);
+            furiten.AddRange(accepts.Where(w => own[w.Kind] > 0).Select(w => w.Kind));
+        }
+
         return new HandAnalysis
         {
             Snapshot = snap,
@@ -64,6 +74,7 @@ public sealed class HandAnalysis
             YakuPaths = yaku,
             OpenWithoutYaku = YakuAdvisor.IsOpenWithoutYaku(snap.MyMelds, yaku),
             Threats = threats,
+            FuritenWaits = furiten,
         };
     }
 

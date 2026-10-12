@@ -18,6 +18,9 @@ public class CoachWindow : Window, IDisposable
     private Coach Coach => plugin.Coach;
     private Configuration Config => plugin.Configuration;
 
+    /// <summary>Lesson to open on the Learn tab next frame, set by the "Explain" buttons.</summary>
+    private string? jumpToLesson;
+
     public CoachWindow(Plugin plugin) : base("Ukeire - Mahjong Tutor###UkeireCoach")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -44,8 +47,9 @@ public class CoachWindow : Window, IDisposable
             if (tab.Success) DrawDefense(snap, analysis);
         using (var tab = ImRaii.TabItem("Review"))
             if (tab.Success) DrawReview();
-        using (var tab = ImRaii.TabItem("Learn"))
-            if (tab.Success) DrawLearn();
+        var learnFlags = jumpToLesson != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        using (var tab = ImRaii.TabItem("Learn", learnFlags))
+            if (tab.Success) DrawLearn(snap, analysis);
         using (var tab = ImRaii.TabItem("Debug"))
             if (tab.Success) DrawDebug(snap);
     }
@@ -113,7 +117,8 @@ public class CoachWindow : Window, IDisposable
         else
         {
             ImGui.TextUnformatted($"Shanten: {s.Value}{formNote}");
-            TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai). See the Learn tab.");
+            TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai).");
+            ExplainButton("shanten");
             if (a.Acceptances is { Count: > 0 } acc)
             {
                 ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
@@ -123,10 +128,28 @@ public class CoachWindow : Window, IDisposable
 
     private void DrawWarnings(HandAnalysis a)
     {
+        if (a.FuritenWaits.Count > 0)
+        {
+            ImGui.TextColored(TileWidgets.Bad, $"Furiten: {Tiles.Join(a.FuritenWaits)} is in your own discards. You can't win on another player's discard.");
+            ExplainButton("furiten");
+        }
         if (a.OpenWithoutYaku)
-            ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands. See the Learn tab: \"You need a yaku\".");
+        {
+            ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands.");
+            ExplainButton("yaku");
+        }
         if (a.Threats.Count > 0)
+        {
             ImGui.TextColored(TileWidgets.Warn, $"{string.Join(", ", a.Threats.Select(t => SeatName(a.Snapshot, t.Seat)))} declared riichi. Check the Defense tab before pushing.");
+            ExplainButton("pushfold");
+        }
+    }
+
+    /// <summary>A small button after the last item that switches to the Learn tab with this lesson open.</summary>
+    private void ExplainButton(string lessonId)
+    {
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Explain##{lessonId}")) jumpToLesson = lessonId;
     }
 
     private void DrawHints(HandAnalysis a)
@@ -349,13 +372,51 @@ public class CoachWindow : Window, IDisposable
         }
     }
 
-    private static void DrawLearn()
+    private void DrawLearn(TableSnapshot snap, HandAnalysis? a)
     {
-        foreach (var (title, body) in Lessons.All)
+        var jump = jumpToLesson;
+        jumpToLesson = null;
+        var spotlights = Lessons.Relevant(snap, a, Coach.LastReview);
+
+        if (spotlights.Count > 0)
         {
-            if (!ImGui.CollapsingHeader(title)) continue;
-            using (ImRaii.PushIndent())
-                ImGui.TextWrapped(body);
+            ImGui.TextColored(TileWidgets.Good, "Right now at your table");
+            TileWidgets.HelpMarker("Lessons picked from your current hand, the round and your last discard. They never point at a specific discard; use the hints for that.");
+            foreach (var s in spotlights)
+                LessonHeader(s.Lesson, s.Why, jump, "now");
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.TextUnformatted("All lessons");
+        }
+        else if (snap.IsActive)
+        {
+            ImGui.TextColored(TileWidgets.Muted, "Nothing in particular stands out in this hand. Browse the basics below.");
+        }
+        else
+        {
+            ImGui.TextColored(TileWidgets.Muted, "At the table, lessons that apply to your hand will show up here.");
+        }
+
+        foreach (var lesson in Lessons.All)
+        {
+            // When a lesson is spotlighted, the jump opens that copy instead of the one in the full list.
+            var jumpHere = spotlights.Any(s => s.Lesson.Id == jump) ? null : jump;
+            LessonHeader(lesson, null, jumpHere, "all");
+        }
+    }
+
+    private static void LessonHeader(Lesson lesson, string? why, string? jump, string scope)
+    {
+        var target = jump == lesson.Id;
+        if (target) ImGui.SetNextItemOpen(true);
+        var open = ImGui.CollapsingHeader($"{lesson.Title}##{scope}_{lesson.Id}");
+        if (open && target) ImGui.SetScrollHereY(0f);
+        using (ImRaii.PushIndent())
+        {
+            if (why != null)
+                using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Warn))
+                    ImGui.TextWrapped(why);
+            if (open) ImGui.TextWrapped(lesson.Body);
         }
     }
 

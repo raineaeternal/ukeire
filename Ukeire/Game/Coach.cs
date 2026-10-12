@@ -64,6 +64,11 @@ public sealed class Coach : IDisposable
         get { lock (gate) return reviews.ToList(); }
     }
 
+    public ReviewEntry? LastReview
+    {
+        get { lock (gate) return reviews.Count > 0 ? reviews[^1] : null; }
+    }
+
     public void RevealHint(HintTier tier)
     {
         if (tier > HintTier && (int)tier <= config.MaxHintTier) HintTier = tier;
