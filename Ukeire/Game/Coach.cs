@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -90,6 +91,20 @@ public sealed class Coach : IDisposable
     }
 
     public TableSnapshot Snapshot { get; private set; } = TableSnapshot.Inactive;
+
+    /// <summary>
+    /// The snapshot the analysis follows: <see cref="Snapshot"/>, except that in riichi the hand is replaced by the
+    /// hand locked in when riichi was declared, so drawing a tile doesn't change the analysis.
+    /// </summary>
+    public TableSnapshot Basis { get; private set; } = TableSnapshot.Inactive;
+
+    /// <summary>The player's hand as it was right after their riichi discard. Null when not in riichi.</summary>
+    private TableSnapshot? riichiLock;
+
+    /// <summary>True once the player's riichi discard has been made and their hand is locked.</summary>
+    public bool IsRiichiLocked => riichiLock != null;
+
+    public bool IsCurrent([NotNullWhen(true)] HandAnalysis? a) => a != null && a.Snapshot.Fingerprint() == Basis.Fingerprint();
     public HandAnalysis? Analysis => Volatile.Read(ref analysis);
 
     /// <summary>How far the player has opened the hints for the current decision.</summary>
@@ -139,10 +154,11 @@ public sealed class Coach : IDisposable
             case (true, true) when snap.TotalDiscards < previous.TotalDiscards:
                 OnNewHand();
                 break;
-            case (true, true):
+            case (true, true) when riichiLock == null:
                 DetectOwnDiscard(previous, snap);
                 break;
         }
+        UpdateRiichiLock(snap);
         if (snap.IsActive && previous.IsActive && MeldTileCount(snap) > MeldTileCount(previous))
             pendingCall ??= (previous, DateTime.Now);
         if (pendingCall != null) ResolveCall(snap);
@@ -161,11 +177,16 @@ public sealed class Coach : IDisposable
         previous = snap;
         if (!snap.IsActive)
         {
+            Basis = snap;
             Volatile.Write(ref analysis, null);
             return;
         }
 
         var ctx = Context(snap);
+        snap = riichiLock is { } locked
+            ? snap with { Hand = locked.Hand, RedFives = locked.RedFives, HandTileCount = locked.HandTileCount, DrawnTile = -1, DrawnTileIsRed = false }
+            : snap;
+        Basis = snap;
         var key = HashCode.Combine(snap.Fingerprint(), ctx.RoundWind, ctx.SeatWind, string.Join(",", ctx.DoraIndicators), string.Join(",", ctx.RiichiSeats));
         if (key == analysisKey) return;
 
@@ -188,6 +209,22 @@ public sealed class Coach : IDisposable
                 log.Error(ex, "Hand analysis failed");
             }
         });
+    }
+
+    /// <summary>
+    /// In riichi the hand can't change: every draw that doesn't win is discarded. The hand is locked at the first
+    /// snapshot after the riichi discard, and again after a closed kan reshapes it.
+    /// </summary>
+    private void UpdateRiichiLock(TableSnapshot snap)
+    {
+        riichiLock = (snap.IsActive && snap.Riichi[snap.LocalSeat], riichiLock) switch
+        {
+            (false, _) => null,
+            (true, { } held) when held.OpenMeldCount == snap.OpenMeldCount => held,
+            (true, _) when !snap.IsDiscardTurn => snap,
+            // The riichi discard hasn't landed yet, or a kan's replacement tile is still in hand.
+            _ => null,
+        };
     }
 
     private void OnNewHand()

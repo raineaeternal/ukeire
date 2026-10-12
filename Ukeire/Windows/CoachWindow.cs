@@ -83,7 +83,7 @@ public class CoachWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        if (a == null || a.Snapshot.Fingerprint() != snap.Fingerprint())
+        if (!Coach.IsCurrent(a))
         {
             if (Config.ExplainCalls && Coach.CallWindowOpen) ImGui.TextColored(TileWidgets.Warn, "Checking whether you can call...");
             ImGui.TextColored(TileWidgets.Muted, "Analyzing...");
@@ -95,8 +95,18 @@ public class CoachWindow : Window, IDisposable
         if (Config.ShowShanten) DrawStatus(a);
         DrawWarnings(a);
 
-        if (snap.IsDiscardTurn) DrawHints(a);
-        else ImGui.TextColored(TileWidgets.Muted, "Waiting for your turn. Hints open up when you have a tile to discard.");
+        switch (Coach.IsRiichiLocked, snap.IsDiscardTurn)
+        {
+            case (true, _):
+                ImGui.TextColored(TileWidgets.Muted, "You're in riichi, so your hand is locked: discard every tile you draw unless it wins. The analysis stays on the hand you declared with.");
+                break;
+            case (_, true):
+                DrawHints(a);
+                break;
+            default:
+                ImGui.TextColored(TileWidgets.Muted, "Waiting for your turn. Hints open up when you have a tile to discard.");
+                break;
+        }
 
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("Yaku you can aim for", ImGuiTreeNodeFlags.DefaultOpen)) DrawYaku(a);
@@ -450,7 +460,7 @@ public class CoachWindow : Window, IDisposable
     {
         var jump = jumpToLesson;
         jumpToLesson = null;
-        var spotlights = Lessons.Relevant(snap, a, Coach.LastReview);
+        var spotlights = Lessons.Relevant(snap, Coach.IsCurrent(a) ? a : null, Coach.LastReview);
 
         switch (spotlights.Count, snap.IsActive)
         {

@@ -79,13 +79,14 @@ public static class Lessons
     /// Picks the lessons that apply to the table right now, most urgent first. The reasons only restate what the
     /// Table and Review tabs already show, so this never names the best discard before a hint is opened.
     /// </summary>
+    /// <param name="a">The analysis, only if it's current; null otherwise.</param>
     public static List<Spotlight> Relevant(TableSnapshot snap, HandAnalysis? a, ReviewEntry? last)
     {
         var list = new List<Spotlight>();
         if (!snap.IsActive) return list;
         void Add(string id, string why) => list.Add(new Spotlight(Get(id), why));
 
-        var current = a != null && a.Snapshot.Fingerprint() == snap.Fingerprint() ? a : null;
+        var current = a;
         var inRiichi = snap.Riichi[snap.LocalSeat];
         var closed = snap.MyMelds.All(m => m.IsConcealedKan);
 

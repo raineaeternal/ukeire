@@ -10,7 +10,7 @@ public sealed record DiscardEntry(int Kind, uint Flags);
 /// What the local player can legitimately see: their own hand, every discard pile and every called meld.
 /// Opponents' concealed hands are never read.
 /// </summary>
-public sealed class TableSnapshot
+public sealed record TableSnapshot
 {
     public static readonly TableSnapshot Inactive = new() { IsActive = false, Status = "Not at a Doman Mahjong table." };
 
