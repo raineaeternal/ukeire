@@ -53,9 +53,14 @@ public static class Lessons
          "When someone declares riichi, ask: am I tenpai or 1-shanten with a good hand? If yes, pushing can be right. " +
          "If you're 2+ shanten or the hand is cheap, fold. Discard your safest tiles and give up on winning this hand. " +
          "Not dealing in is worth more than a slow hand."),
-        new("dora", "Dora",
-         "The dora indicator shows the tile before the dora: an indicator of 3m makes 4m dora, 9 wraps to 1, " +
-         "winds go E-S-W-N-E and dragons go White-Green-Red-White. Each dora adds a han but isn't a yaku by itself. Red fives are always dora."),
+        new("dora", "Dora, aka dora and ura dora",
+         "There are three kinds of dora, and every copy is worth 1 han. " +
+         "Dora: the indicator shows the tile before the dora. An indicator of 3m makes 4m dora, 9 wraps to 1, " +
+         "winds go E-S-W-N-E and dragons go White-Green-Red-White. A kan reveals another indicator. " +
+         "Aka dora: the red fives are always dora. A red five that is also the dora counts twice. " +
+         "Ura dora: when a riichi player wins, the tile under each indicator is flipped and gives more dora the same way. " +
+         "Nobody sees them before the win, which is another reason to declare riichi. " +
+         "Dora add han but aren't yaku: a hand full of dora still needs a yaku to win."),
     ];
 
     public static Lesson Get(string id) => All.First(l => l.Id == id);
@@ -141,8 +146,10 @@ public static class Lessons
         var dora = snap.DoraIndicators.Where(Tiles.IsValid).Select(Tiles.DoraFromIndicator).ToList();
         if (dora.Count > 0)
         {
-            var held = dora.Sum(k => snap.Hand[k] + snap.MyMelds.Sum(m => m.Kinds.Count(x => x == k))) + snap.RedFives.Sum();
-            Add("dora", $"Dora this hand: {Tiles.Join(dora.Distinct())}. You hold {held} dora{(snap.RedFives.Sum() > 0 ? " counting red fives" : "")}.");
+            var regular = dora.Sum(k => snap.Hand[k] + snap.MyMelds.Sum(m => m.Kinds.Count(x => x == k)));
+            var aka = snap.RedFives.Sum();
+            var held = aka > 0 ? $"{regular} dora and {aka} aka dora" : $"{regular} dora";
+            Add("dora", $"Dora this hand: {Tiles.Join(dora.Distinct())}. You hold {held}, worth {regular + aka} han if you win with a yaku.");
         }
 
         return list;
