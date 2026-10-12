@@ -20,6 +20,16 @@ public static unsafe class EmjReader
     private const uint UnusedMeldTile = 255;
     private const uint RedFiveFlag = 0x100;
 
+    /// <summary>AgentEmj.MatchType, or 0 when the agent isn't available. Framework thread only.</summary>
+    public static uint MatchType
+    {
+        get
+        {
+            var agent = AgentEmj.Instance();
+            return agent == null ? 0 : agent->MatchType;
+        }
+    }
+
     public static TableSnapshot Read()
     {
         var agent = AgentEmj.Instance();

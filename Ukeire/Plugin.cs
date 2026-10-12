@@ -41,7 +41,7 @@ public sealed class Plugin : IDalamudPlugin
         // Nothing above this line may touch ClientStructs; the Coach only reads the table from Framework.Update.
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
-        Coach = new Coach(Configuration, Framework, Log);
+        Coach = new Coach(Configuration, Framework, Log, new GameHistory(PluginInterface.ConfigDirectory, Log));
         ConfigWindow = new ConfigWindow(this);
         CoachWindow = new CoachWindow(this);
 
@@ -69,6 +69,7 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow.Dispose();
         CoachWindow.Dispose();
         Coach.Dispose();
+        Coach.History.Flush();
 
         CommandManager.RemoveHandler(CommandName);
     }

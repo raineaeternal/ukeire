@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -52,6 +53,8 @@ public class CoachWindow : Window, IDisposable
             if (tab.Success) DrawDefense(snap, analysis);
         using (var tab = ImRaii.TabItem("Review"))
             if (tab.Success) DrawReview();
+        using (var tab = ImRaii.TabItem("History"))
+            if (tab.Success) DrawHistory();
         var learnFlags = jumpToLesson != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
         using (var tab = ImRaii.TabItem("Learn", learnFlags))
             if (tab.Success) DrawLearn(snap, analysis);
@@ -447,6 +450,111 @@ public class CoachWindow : Window, IDisposable
                 ImGui.TextWrapped(r.Message);
             }
             ImGui.Separator();
+        }
+    }
+
+    private static string Ordinal(int n) => n switch
+    {
+        1 => "1st",
+        2 => "2nd",
+        3 => "3rd",
+        4 => "4th",
+        _ => "-",
+    };
+
+    private static string Percent(IEnumerable<ReviewRecord> reviews)
+    {
+        var list = reviews.ToList();
+        return list.Count == 0 ? "-" : $"{100 * list.Count(r => r.IsSound) / list.Count}% of {list.Count}";
+    }
+
+    private void DrawHistory()
+    {
+        var history = Coach.History;
+        var games = history.Games;
+        if (games.Count == 0)
+        {
+            ImGui.TextWrapped("Every game you play is saved here, with each hand's points and the reviews of your discards and calls. It's kept across plugin updates.");
+            return;
+        }
+
+        var finished = games.Where(g => g.Placement > 0).ToList();
+        var reviews = games.SelectMany(g => g.Reviews).ToList();
+        ImGui.TextUnformatted($"Games: {games.Count}");
+        if (finished.Count > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"| Average placement: {finished.Average(g => g.Placement):0.00}  | 1st: {finished.Count(g => g.Placement == 1)}");
+        }
+        ImGui.TextUnformatted($"Sound discards: {Percent(reviews.Where(r => !r.IsCall))}  | Sound calls: {Percent(reviews.Where(r => r.IsCall))}");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Copy folder path")) ImGui.SetClipboardText(history.FolderPath);
+        TileWidgets.HelpMarker($"Saved as one JSON file per game in {history.FolderPath}");
+        ImGui.Separator();
+
+        using var child = ImRaii.Child("##history", Vector2.Zero);
+        if (!child.Success) return;
+        var current = history.Current;
+        foreach (var game in games)
+        {
+            using var id = ImRaii.PushId(game.Id);
+            var outcome = (game == current, game.Ended.HasValue) switch
+            {
+                (true, _) => "in progress",
+                (_, false) => "unfinished",
+                _ => $"{Ordinal(game.Placement)}, {game.FinalPoints[0]:N0}",
+            };
+            var gameReviews = game.Reviews.ToList();
+            var header = $"{game.Started:yyyy-MM-dd HH:mm}  ·  {outcome}  ·  {game.Hands.Count} hands  ·  discards {Percent(gameReviews.Where(r => !r.IsCall))}";
+            if (!ImGui.CollapsingHeader($"{header}###game")) continue;
+
+            using var indent = ImRaii.PushIndent();
+            if (game.Ended.HasValue)
+                ImGui.TextColored(TileWidgets.Muted, $"Final: you {game.FinalPoints[0]:N0}, right {game.FinalPoints[1]:N0}, across {game.FinalPoints[2]:N0}, left {game.FinalPoints[3]:N0}");
+            if (game != current)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Delete") && ImGui.GetIO().KeyCtrl) history.Delete(game);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Hold Ctrl and click to delete this game.");
+            }
+
+            for (var h = 0; h < game.Hands.Count; h++)
+            {
+                var hand = game.Hands[h];
+                var change = hand.PointsChange;
+                var tags = string.Concat(hand.WasDealer ? " · dealer" : "", hand.DeclaredRiichi ? " · riichi" : "", hand.MeldsCalled > 0 ? $" · {hand.MeldsCalled} called" : "");
+                var color = change switch
+                {
+                    > 0 => TileWidgets.Good,
+                    < 0 => TileWidgets.Bad,
+                    _ => TileWidgets.Muted,
+                };
+                using (ImRaii.PushColor(ImGuiCol.Text, color))
+                {
+                    if (!ImGui.TreeNode($"{hand.Label}  {change:+#,0;-#,0;0}{tags}  ·  discards {Percent(hand.Reviews.Where(r => !r.IsCall))}###hand{h}"))
+                        continue;
+                }
+                foreach (var r in hand.Reviews)
+                {
+                    var verdict = Enum.TryParse<Verdict>(r.Verdict, out var v) ? v : (Verdict?)null;
+                    var vColor = verdict switch
+                    {
+                        Verdict.Best or Verdict.Good => TileWidgets.Good,
+                        Verdict.Defensive => new Vector4(0.55f, 0.75f, 0.95f, 1f),
+                        Verdict.Slow or Verdict.Risky or Verdict.Pointless => TileWidgets.Warn,
+                        null => TileWidgets.Muted,
+                        _ => TileWidgets.Bad,
+                    };
+                    var label = verdict is { } known ? VerdictName(known) : r.Verdict;
+                    ImGui.TextColored(vColor, r.IsCall ? $"Call: {label}" : label);
+                    ImGui.SameLine();
+                    ImGui.TextColored(TileWidgets.Muted, $"{(r.IsCall ? Tiles.Join(r.Meld) : Tiles.IsValid(r.Tile) ? Tiles.Short(r.Tile) : "?")}  {r.Hand}{(r.IsUnaided ? "" : $"  (hint: {r.HintUsed})")}");
+                    using (ImRaii.PushIndent())
+                        ImGui.TextWrapped(r.Message);
+                }
+                if (hand.Reviews.Count == 0) ImGui.TextColored(TileWidgets.Muted, "No reviews this hand.");
+                ImGui.TreePop();
+            }
         }
     }
 

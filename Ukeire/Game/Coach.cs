@@ -82,15 +82,18 @@ public sealed class Coach : IDisposable
     /// <summary>How long to wait for the hand to update after a new meld shows up before giving up on reviewing it.</summary>
     private static readonly TimeSpan CallSettleTime = TimeSpan.FromSeconds(5);
 
-    public Coach(Configuration config, IFramework framework, IPluginLog log)
+    public Coach(Configuration config, IFramework framework, IPluginLog log, GameHistory history)
     {
         this.config = config;
         this.framework = framework;
         this.log = log;
+        History = history;
         framework.Update += OnUpdate;
     }
 
     public TableSnapshot Snapshot { get; private set; } = TableSnapshot.Inactive;
+
+    public GameHistory History { get; }
 
     /// <summary>
     /// The snapshot the analysis follows: <see cref="Snapshot"/>, except that in riichi the hand is replaced by the
@@ -159,6 +162,7 @@ public sealed class Coach : IDisposable
                 break;
         }
         UpdateRiichiLock(snap);
+        History.Observe(snap);
         if (snap.IsActive && previous.IsActive && MeldTileCount(snap) > MeldTileCount(previous))
             pendingCall ??= (previous, DateTime.Now);
         if (pendingCall != null) ResolveCall(snap);
@@ -292,6 +296,7 @@ public sealed class Coach : IDisposable
 
     private void AddReview(ReviewEntry entry)
     {
+        History.Add(entry);
         lock (gate)
         {
             reviews.Add(entry);
