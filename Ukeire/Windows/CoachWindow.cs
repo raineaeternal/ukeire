@@ -328,21 +328,33 @@ public class CoachWindow : Window, IDisposable
         if (reviews.Count == 0)
         {
             ImGui.TextWrapped(Config.AutoReview
-                ? "Each discard you make will be reviewed here: what it did to your hand, and what the most efficient choice would have been."
-                : "Discard reviews are turned off in the settings.");
+                ? "Each discard and call you make will be reviewed here: what it did to your hand, and what the better choice would have been."
+                : "Reviews are turned off in the settings.");
             return;
         }
 
-        var sound = reviews.Count(r => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive);
-        var unaided = reviews.Where(r => r.HintUsed == HintTier.None).ToList();
-        ImGui.TextUnformatted($"Sound discards: {sound}/{reviews.Count} ({100 * sound / reviews.Count}%)");
-        if (unaided.Count > 0)
+        static bool Sound(ReviewEntry r) => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive;
+        var discards = reviews.Where(r => r.Kind == ReviewKind.Discard).ToList();
+        var calls = reviews.Where(r => r.Kind == ReviewKind.Call).ToList();
+        if (discards.Count > 0)
         {
-            var unaidedSound = unaided.Count(r => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive);
+            var sound = discards.Count(Sound);
+            ImGui.TextUnformatted($"Sound discards: {sound}/{discards.Count} ({100 * sound / discards.Count}%)");
+            var unaided = discards.Where(r => r.HintUsed == HintTier.None).ToList();
+            if (unaided.Count > 0)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(TileWidgets.Muted, $"| without hints: {unaided.Count(Sound)}/{unaided.Count}");
+            }
             ImGui.SameLine();
-            ImGui.TextColored(TileWidgets.Muted, $"| without hints: {unaidedSound}/{unaided.Count}");
         }
-        ImGui.SameLine();
+        if (calls.Count > 0)
+        {
+            if (discards.Count > 0) ImGui.TextColored(TileWidgets.Muted, "|");
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"Sound calls: {calls.Count(Sound)}/{calls.Count}");
+            ImGui.SameLine();
+        }
         if (ImGui.SmallButton("Clear")) Coach.ClearReviews();
         ImGui.Separator();
 
@@ -356,14 +368,18 @@ public class CoachWindow : Window, IDisposable
             {
                 Verdict.Best or Verdict.Good => TileWidgets.Good,
                 Verdict.Defensive => new Vector4(0.55f, 0.75f, 0.95f, 1f),
-                Verdict.Slow => TileWidgets.Warn,
+                Verdict.Slow or Verdict.Risky or Verdict.Pointless => TileWidgets.Warn,
                 _ => TileWidgets.Bad,
             };
-            TileWidgets.Tile(r.Discard, "d");
+            using (ImRaii.Group())
+            {
+                if (r.Kind == ReviewKind.Call) TileWidgets.Row(r.Meld, "m");
+                else TileWidgets.Tile(r.Tile, "d");
+            }
             ImGui.SameLine();
             using (ImRaii.Group())
             {
-                ImGui.TextColored(color, r.Verdict.ToString());
+                ImGui.TextColored(color, r.Kind == ReviewKind.Call ? $"Call: {VerdictName(r.Verdict)}" : VerdictName(r.Verdict));
                 ImGui.SameLine();
                 ImGui.TextColored(TileWidgets.Muted, $"{r.Time:HH:mm:ss}  {r.Hand}{(r.HintUsed > HintTier.None ? $"  (hint: {r.HintUsed})" : string.Empty)}");
                 ImGui.TextWrapped(r.Message);
@@ -371,6 +387,12 @@ public class CoachWindow : Window, IDisposable
             ImGui.Separator();
         }
     }
+
+    private static string VerdictName(Verdict v) => v switch
+    {
+        Verdict.NoYaku => "No yaku",
+        _ => v.ToString(),
+    };
 
     private void DrawLearn(TableSnapshot snap, HandAnalysis? a)
     {

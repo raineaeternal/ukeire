@@ -32,8 +32,8 @@ public class ConfigWindow : Window, IDisposable
         }
         TileWidgets.HelpMarker("Limit how much the tutor can tell you during a hand. Lower tiers make you do more of the thinking.");
 
-        Toggle("Review my discards", configuration.AutoReview, v => configuration.AutoReview = v,
-               "After each discard, compare it against the most efficient options.");
+        Toggle("Review my discards and calls", configuration.AutoReview, v => configuration.AutoReview = v,
+               "After each discard, compare it against the most efficient options. After each chi, pon or kan, rate whether the call helped.");
         Toggle("Show shanten and waits", configuration.ShowShanten, v => configuration.ShowShanten = v,
                "Turn off to practise counting shanten yourself.");
         Toggle("Show defense ratings", configuration.ShowDefense, v => configuration.ShowDefense = v,

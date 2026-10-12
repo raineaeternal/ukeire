@@ -37,6 +37,13 @@ public static class Lessons
          "In Riichi Mahjong you can't win without at least one yaku. A closed hand always has riichi available. " +
          "Once you call chi or pon, you need an open-compatible yaku such as a dragon or value-wind triplet, All Simples or a flush. " +
          "Calling without a plan can leave you with a hand that can never win."),
+        new("calling", "Calling chi, pon and kan",
+         "Calling a discard speeds your hand up but opens it. You lose riichi, and an open hand needs a yaku that still works open: " +
+         "a dragon or value-wind triplet, All Simples, a flush or All Triplets. Flushes are worth one han less when open. " +
+         "A good call brings you closer to tenpai and keeps a yaku you already have, like pon on a dragon pair. " +
+         "A weak call doesn't change your shanten, leaves you hoping for a yaku you don't have yet, or comes while someone is in riichi " +
+         "and you're far from tenpai: every call leaves fewer tiles in your hand to defend with. " +
+         "A kan doesn't change your shape. It gives you a replacement draw and reveals a new dora indicator for everyone. A closed kan keeps your hand closed."),
         new("riichi", "Riichi",
          "Declaring riichi on a closed tenpai hand adds a han and locks your hand: after that you must discard every tile you draw unless it wins. " +
          "It also tells everyone you're tenpai, so they'll defend."),
@@ -126,17 +133,24 @@ public static class Lessons
 
         if (last != null && DateTime.Now - last.Time < ReviewWindow)
         {
-            var tile = Tiles.Short(last.Discard);
-            switch (last.Verdict)
+            var tile = Tiles.Short(last.Tile);
+            switch (last.Kind, last.Verdict)
             {
-                case Verdict.Backward:
+                case (ReviewKind.Call, Verdict.NoYaku):
+                    Add("calling", $"Your last call (on {tile}) left your open hand with no yaku.");
+                    break;
+                case (ReviewKind.Call, Verdict.Pointless or Verdict.Risky or Verdict.Backward):
+                    Add("calling", $"Your last call (on {tile}) was rated {last.Verdict}. See what makes a call worth it.");
+                    break;
+                case (ReviewKind.Call, _):
+                    break;
+                case (_, Verdict.Backward):
                     Add("shapes", $"Your last discard ({tile}) set you back a step. It was probably part of a group or a useful shape.");
                     break;
-                case Verdict.Slow:
-                case Verdict.Good:
+                case (_, Verdict.Slow or Verdict.Good):
                     Add("ukeire", $"Your last discard ({tile}) kept your shanten but accepted fewer tiles than the best choice.");
                     break;
-                case Verdict.Defensive:
+                case (_, Verdict.Defensive):
                     if (list.All(x => x.Lesson.Id != "pushfold"))
                         Add("pushfold", $"Your last discard ({tile}) traded speed for safety.");
                     break;

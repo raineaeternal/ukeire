@@ -113,7 +113,11 @@ public static class YakuAdvisor
     public static bool IsOpenWithoutYaku(IReadOnlyList<OpenMeld> melds, List<YakuPath> paths)
     {
         if (melds.All(m => m.IsConcealedKan)) return false;
-        return !paths.Any(p => p.Name.StartsWith("Yakuhai") || p.Name.StartsWith("Tanyao") || p.Name.StartsWith("Honitsu") ||
-                               p.Name.StartsWith("Chinitsu") || p.Name.StartsWith("Toitoi"));
+        return !paths.Any(WorksOpen);
     }
+
+    /// <summary>True for the yaku this advisor suggests that still count once the hand is open.</summary>
+    public static bool WorksOpen(YakuPath p) =>
+        p.Name.StartsWith("Yakuhai") || p.Name.StartsWith("Tanyao") || p.Name.StartsWith("Honitsu") ||
+        p.Name.StartsWith("Chinitsu") || p.Name.StartsWith("Toitoi");
 }

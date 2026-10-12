@@ -15,19 +15,38 @@ public enum Verdict
     Defensive,
     Slow,
     Backward,
+
+    /// <summary>A call that made progress but left the hand exposed: an unsecured yaku, or called against riichi.</summary>
+    Risky,
+
+    /// <summary>A call that didn't bring the hand closer to tenpai.</summary>
+    Pointless,
+
+    /// <summary>A call that left an open hand with no yaku in reach.</summary>
+    NoYaku,
 }
 
+public enum ReviewKind
+{
+    Discard,
+    Call,
+}
+
+/// <param name="Tile">The discarded tile, or the tile taken by a call. For a closed or added kan, the kan's tile.</param>
+/// <param name="Meld">The meld formed by a call. Empty for a discard.</param>
 public sealed record ReviewEntry(
     DateTime Time,
+    ReviewKind Kind,
     string Hand,
-    int Discard,
+    int Tile,
+    IReadOnlyList<int> Meld,
     Verdict Verdict,
     string Message,
     IReadOnlyList<DiscardOption> TopOptions,
     HintTier HintUsed);
 
 /// <summary>
-/// Watches the table, keeps an up-to-date analysis on a worker thread and reviews each discard after it is made.
+/// Watches the table, keeps an up-to-date analysis on a worker thread and reviews each discard and call after it is made.
 /// It never sends input to the game.
 /// </summary>
 public sealed class Coach : IDisposable
@@ -44,6 +63,12 @@ public sealed class Coach : IDisposable
     private HandAnalysis? analysis;
     private HandAnalysis? decision;
     private bool readFailed;
+
+    /// <summary>The table just before one of the player's melds appeared, kept until the hand catches up.</summary>
+    private (TableSnapshot Before, DateTime Seen)? pendingCall;
+
+    /// <summary>How long to wait for the hand to update after a new meld shows up before giving up on reviewing it.</summary>
+    private static readonly TimeSpan CallSettleTime = TimeSpan.FromSeconds(5);
 
     public Coach(Configuration config, IFramework framework, IPluginLog log)
     {
@@ -107,6 +132,9 @@ public sealed class Coach : IDisposable
                 DetectOwnDiscard(previous, snap);
                 break;
         }
+        if (snap.IsActive && previous.IsActive && MeldTileCount(snap) > MeldTileCount(previous))
+            pendingCall ??= (previous, DateTime.Now);
+        if (pendingCall != null) ResolveCall(snap);
 
         Snapshot = snap;
         previous = snap;
@@ -163,18 +191,54 @@ public sealed class Coach : IDisposable
             {
                 var basis = ready != null && ready.Snapshot.Fingerprint() == before.Fingerprint() ? ready : HandAnalysis.Build(before, ctx);
                 var entry = Review(basis, discard, hint);
-                if (entry == null) return;
-                lock (gate)
-                {
-                    reviews.Add(entry);
-                    if (reviews.Count > config.ReviewHistoryLimit) reviews.RemoveRange(0, reviews.Count - config.ReviewHistoryLimit);
-                }
+                if (entry != null) AddReview(entry);
             }
             catch (Exception ex)
             {
                 log.Error(ex, "Discard review failed");
             }
         });
+    }
+
+    private static int MeldTileCount(TableSnapshot snap) => snap.MyMelds.Sum(m => m.Kinds.Count);
+
+    /// <summary>
+    /// The meld and the hand can update on different frames, so a call is only reviewed once the hand has changed too.
+    /// </summary>
+    private void ResolveCall(TableSnapshot snap)
+    {
+        var (before, seen) = pendingCall!.Value;
+        if (!snap.IsActive || DateTime.Now - seen > CallSettleTime)
+        {
+            pendingCall = null;
+            return;
+        }
+        if (snap.Hand.AsSpan().SequenceEqual(before.Hand)) return;
+
+        pendingCall = null;
+        if (!config.AutoReview) return;
+        var ctx = Context(snap);
+        Task.Run(() =>
+        {
+            try
+            {
+                var entry = ReviewCall(before, snap, ctx);
+                if (entry != null) AddReview(entry);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex, "Call review failed");
+            }
+        });
+    }
+
+    private void AddReview(ReviewEntry entry)
+    {
+        lock (gate)
+        {
+            reviews.Add(entry);
+            if (reviews.Count > config.ReviewHistoryLimit) reviews.RemoveRange(0, reviews.Count - config.ReviewHistoryLimit);
+        }
     }
 
     public static ReviewEntry? Review(HandAnalysis basis, int discard, HintTier hint)
@@ -212,8 +276,87 @@ public sealed class Coach : IDisposable
                 $"Same shanten, but {cName} accepts only {chosen.UkeireTotal} tiles. {bName} accepts {best.UkeireTotal}. You lose: {Difference(best, chosen)}."),
         };
 
-        return new ReviewEntry(DateTime.Now, hand, discard, verdict, message, top, hint);
+        return new ReviewEntry(DateTime.Now, ReviewKind.Discard, hand, discard, [], verdict, message, top, hint);
     }
+
+    /// <summary>
+    /// Rates a chi, pon or kan by what it did to the hand: shanten before and after, whether an open yaku is still
+    /// in reach, and whether anyone was in riichi.
+    /// </summary>
+    public static ReviewEntry? ReviewCall(TableSnapshot before, TableSnapshot after, TableContext ctx)
+    {
+        OpenMeld? meld = null;
+        var added = false;
+        for (var i = 0; i < after.MyMelds.Count && meld == null; i++)
+        {
+            if (i >= before.MyMelds.Count) meld = after.MyMelds[i];
+            else if (after.MyMelds[i].Kinds.Count > before.MyMelds[i].Kinds.Count) (meld, added) = (after.MyMelds[i], true);
+        }
+        if (meld == null) return null;
+
+        // The called tile is the one in the meld that didn't come out of the hand. Closed and added kans have none.
+        var called = meld.Kinds.Distinct()
+            .Where(k => meld.Kinds.Count(x => x == k) > Math.Max(0, before.Hand[k] - after.Hand[k]))
+            .DefaultIfEmpty(-1).First();
+        var tile = called >= 0 ? called : meld.Kind;
+        var kan = meld.Kinds.Count == 4;
+        var name = (kan, meld.IsConcealedKan, added, meld.IsSequence) switch
+        {
+            (true, true, _, _) => "Closed kan",
+            (true, _, true, _) => "Added kan",
+            (true, _, _, _) => "Open kan",
+            (_, _, _, true) => "Chi",
+            _ => "Pon",
+        };
+        var label = $"{name} on {Tiles.Short(tile)}";
+
+        var shantenBefore = Mahjong.Shanten.Calculate(before.Hand, before.OpenMeldCount).Value;
+        var shantenAfter = Mahjong.Shanten.Calculate(after.Hand, after.OpenMeldCount).Value;
+        var gained = shantenBefore - shantenAfter;
+        var paths = YakuAdvisor.Suggest(after.Hand, after.MyMelds, ctx.RoundWind, ctx.SeatWind);
+        var noYaku = YakuAdvisor.IsOpenWithoutYaku(after.MyMelds, paths);
+        var plan = paths.Where(YakuAdvisor.WorksOpen).MinBy(p => p.Outlook);
+        var securedBefore = YakuAdvisor.Suggest(before.Hand, before.MyMelds, ctx.RoundWind, ctx.SeatWind)
+            .Where(p => p.Outlook == YakuOutlook.Secured).Select(p => p.Name).ToHashSet();
+        var newlySecured = paths.FirstOrDefault(p => p.Outlook == YakuOutlook.Secured && !securedBefore.Contains(p.Name));
+        var opensHand = !meld.IsConcealedKan && before.MyMelds.All(m => m.IsConcealedKan);
+        var threatened = Enumerable.Range(0, 4).Any(seat => seat != after.LocalSeat && ctx.IsThreat(seat));
+
+        var (verdict, message) = (kan, meld.IsConcealedKan, noYaku, gained) switch
+        {
+            (_, false, true, _) => (Verdict.NoYaku,
+                $"{label} left your open hand with no yaku in reach. It can't win unless you build one. Check for an open yaku before calling."),
+            (_, _, _, < 0) => (Verdict.Backward,
+                $"{label} broke up your shape: {ShantenText(shantenBefore)} before, {ShantenText(shantenAfter)} after. Those tiles were doing more work where they were."),
+            (true, _, _, _) when threatened => (Verdict.Risky,
+                $"{label} revealed a new dora indicator while someone is in riichi. It can make their hand more valuable just as much as yours."),
+            (true, true, _, _) => (Verdict.Good,
+                $"{label}: your hand stays closed (riichi is still on), you get a replacement draw and a new dora indicator."),
+            (true, _, _, _) => (Verdict.Good,
+                $"{label}: no change to your shape, plus a replacement draw and a new dora indicator.{(opensHand ? " It opened your hand, so riichi is gone." : "")}"),
+            (_, _, _, 0) when newlySecured != null => (Verdict.Good,
+                $"{label} didn't change your shanten, but it locked in {newlySecured.Name} as your yaku.{(opensHand ? " Staying closed for riichi was also an option, since the call didn't speed you up." : "")}"),
+            (_, _, _, 0) => (Verdict.Pointless,
+                shantenAfter == 0
+                    ? $"{label} kept you at tenpai but didn't improve anything. You were already waiting, so the call only gave up options{(opensHand ? " like riichi" : "")}."
+                    : $"{label} didn't bring you closer to tenpai (still {ShantenText(shantenAfter)}). A call is only worth opening up for when it speeds you up."),
+            _ when threatened && shantenAfter >= 2 => (Verdict.Risky,
+                $"{label} while someone is in riichi, and you're still {ShantenText(shantenAfter)}. Every call leaves fewer tiles in your hand to defend with."),
+            _ when plan is { Outlook: YakuOutlook.Possible } => (Verdict.Risky,
+                $"{label} sped you up to {ShantenText(shantenAfter)}, but your only open yaku, {plan.Name}, isn't secured yet. If it falls apart, the hand can't win."),
+            _ => (Verdict.Good,
+                $"{label} took you to {ShantenText(shantenAfter)} with {plan?.Name ?? "a yaku"} {(plan?.Outlook == YakuOutlook.Secured ? "locked in" : "on track")}.{(opensHand ? " You gave up riichi for speed, a fair trade with a yaku in reach." : "")}"),
+        };
+
+        return new ReviewEntry(DateTime.Now, ReviewKind.Call, Tiles.Notation(before.Hand), tile, meld.Kinds, verdict, message, [], HintTier.None);
+    }
+
+    private static string ShantenText(int shanten) => shanten switch
+    {
+        < 0 => "a complete hand",
+        0 => "tenpai",
+        _ => $"{shanten}-shanten",
+    };
 
     private static string Describe(SafetyLevel? level) => level switch
     {
