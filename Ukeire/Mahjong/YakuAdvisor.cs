@@ -11,7 +11,9 @@ public enum YakuOutlook
     Possible,
 }
 
-public sealed record YakuPath(string Name, YakuOutlook Outlook, string Explanation);
+/// <param name="Yakuman">A yakuman: a limit hand worth far more than ordinary yaku, and far rarer.</param>
+/// <param name="ClosedOnly">Only counts while the hand stays closed.</param>
+public sealed record YakuPath(string Name, YakuOutlook Outlook, string Explanation, bool Yakuman = false, bool ClosedOnly = false);
 
 public sealed record OpenMeld(IReadOnlyList<int> Kinds, bool IsConcealedKan)
 {
@@ -37,7 +39,8 @@ public static class YakuAdvisor
 
         if (closed)
             paths.Add(new YakuPath("Riichi", YakuOutlook.Possible,
-                "Your hand is closed, so declaring riichi at tenpai always gives you a yaku. Closed hands are the safest default while you're learning."));
+                "Your hand is closed, so declaring riichi at tenpai always gives you a yaku. Closed hands are the safest default while you're learning.",
+                ClosedOnly: true));
 
         // Yakuhai: dragons, round wind, seat wind.
         for (var k = 27; k < Tiles.KindCount; k++)
@@ -101,11 +104,12 @@ public static class YakuAdvisor
         }
         if (closed && pairs + triplets >= 4 && melds.Count == 0)
             paths.Add(new YakuPath("Chiitoitsu (Seven Pairs)", pairs >= 5 ? YakuOutlook.Likely : YakuOutlook.Possible,
-                $"You have {pairs + triplets} pairs. Seven different pairs is a closed-only yaku worth two han."));
+                $"You have {pairs + triplets} pairs. Seven different pairs is a closed-only yaku worth two han.", ClosedOnly: true));
         if (triplets + pairs >= 4 && melds.All(m => !m.IsSequence))
             paths.Add(new YakuPath("Toitoi (All Triplets)", triplets >= 2 ? YakuOutlook.Likely : YakuOutlook.Possible,
                 "Lots of pairs and triplets. Calling pon to build four triplets is worth two han."));
 
+        paths.AddRange(YakumanAdvisor.Suggest(hand, melds));
         return paths;
     }
 
@@ -117,7 +121,5 @@ public static class YakuAdvisor
     }
 
     /// <summary>True for the yaku this advisor suggests that still count once the hand is open.</summary>
-    public static bool WorksOpen(YakuPath p) =>
-        p.Name.StartsWith("Yakuhai") || p.Name.StartsWith("Tanyao") || p.Name.StartsWith("Honitsu") ||
-        p.Name.StartsWith("Chinitsu") || p.Name.StartsWith("Toitoi");
+    public static bool WorksOpen(YakuPath p) => !p.ClosedOnly;
 }

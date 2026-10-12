@@ -44,6 +44,13 @@ public static class Lessons
          "A weak call doesn't change your shanten, leaves you hoping for a yaku you don't have yet, or comes while someone is in riichi " +
          "and you're far from tenpai: every call leaves fewer tiles in your hand to defend with. " +
          "A kan doesn't change your shape. It gives you a replacement draw and reveals a new dora indicator for everyone. A closed kan keeps your hand closed."),
+        new("yakuman", "Yakuman",
+         "A yakuman is a limit hand worth 32,000 points (48,000 as dealer), whatever else is in it. " +
+         "The ones to know: Big Three Dragons (sets of all three dragons), Four Concealed Triplets, Thirteen Orphans (one of each terminal and honor plus a pair), " +
+         "All Honors, Little and Big Four Winds, All Terminals, All Green, Nine Gates (1112345678999 in one suit plus one more) and Four Quads. " +
+         "They're rare: most need a lot of specific tiles, and opponents get wary as soon as one looks possible. " +
+         "Four Quads and True Nine Gates (1112345678999 waiting on any of the nine tiles) are the rarest of all, and many players never see either. " +
+         "Go for a yakuman when your hand is already most of the way there, not by breaking up a good hand to chase one."),
         new("riichi", "Riichi",
          "Declaring riichi on a closed tenpai hand adds a han and locks your hand: after that you must discard every tile you draw unless it wins. " +
          "It also tells everyone you're tenpai, so they'll defend."),
@@ -92,6 +99,9 @@ public static class Lessons
 
         if (current is { FuritenWaits.Count: > 0 } f)
             Add("furiten", $"You're furiten: {Tiles.Join(f.FuritenWaits)} is in your own discards, so you can only win on those by drawing them yourself.");
+
+        if (current?.YakuPaths.Where(y => y.Yakuman).MinBy(y => y.Outlook) is { } yakuman)
+            Add("yakuman", $"Your hand could be heading for {yakuman.Name} ({yakuman.Outlook}). It's a long shot: keep an eye on it, but don't force it.");
 
         if (current is { OpenWithoutYaku: true })
             Add("yaku", "Your hand is open and no yaku is in reach. As it stands it can't win.");

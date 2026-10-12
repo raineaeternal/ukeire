@@ -205,6 +205,7 @@ public sealed class Coach : IDisposable
             {
                 var result = HandAnalysis.Build(snap, ctx);
                 if (Volatile.Read(ref version) != myVersion) return;
+                History.NoteYakuman(result.YakuPaths);
                 Volatile.Write(ref analysis, result);
                 if (snap.IsDiscardTurn) Volatile.Write(ref decision, result);
             }

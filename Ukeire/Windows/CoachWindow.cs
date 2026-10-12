@@ -288,7 +288,7 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextColored(TileWidgets.Muted, "No clear yaku direction yet.");
             return;
         }
-        foreach (var y in a.YakuPaths)
+        foreach (var y in a.YakuPaths.Where(p => !p.Yakuman))
         {
             var color = y.Outlook switch
             {
@@ -297,6 +297,18 @@ public class CoachWindow : Window, IDisposable
                 _ => TileWidgets.Muted,
             };
             ImGui.TextColored(color, $"{y.Name} [{y.Outlook}]");
+            using (ImRaii.PushIndent())
+                ImGui.TextWrapped(y.Explanation);
+        }
+
+        var yakuman = a.YakuPaths.Where(p => p.Yakuman).ToList();
+        if (yakuman.Count == 0) return;
+        ImGui.Spacing();
+        ImGui.TextColored(TileWidgets.Yakuman, "Yakuman chance");
+        TileWidgets.HelpMarker("A yakuman is a limit hand: 32,000 points (48,000 as dealer). They're rare and hard to finish, so treat this as a possibility, not a plan.");
+        foreach (var y in yakuman)
+        {
+            ImGui.TextColored(TileWidgets.Yakuman, $"{y.Name} [{y.Outlook}]");
             using (ImRaii.PushIndent())
                 ImGui.TextWrapped(y.Explanation);
         }
@@ -487,6 +499,11 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextUnformatted($"| Average placement: {finished.Average(g => g.Placement):0.00}  | 1st: {finished.Count(g => g.Placement == 1)}");
         }
         ImGui.TextUnformatted($"Sound discards: {Percent(reviews.Where(r => !r.IsCall))}  | Sound calls: {Percent(reviews.Where(r => r.IsCall))}");
+        var hands = games.SelectMany(g => g.Hands).ToList();
+        var yakumanWins = hands.Count(h => h.YakumanWin != null);
+        var yakumanChances = hands.Count(h => h.YakumanChances.Count > 0);
+        if (yakumanWins + yakumanChances > 0)
+            ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman wins: {yakumanWins}  | Hands with a yakuman chance: {yakumanChances}");
         ImGui.SameLine();
         if (ImGui.SmallButton("Copy folder path")) ImGui.SetClipboardText(history.FolderPath);
         TileWidgets.HelpMarker($"Saved as one JSON file per game in {history.FolderPath}");
@@ -522,11 +539,13 @@ public class CoachWindow : Window, IDisposable
             {
                 var hand = game.Hands[h];
                 var change = hand.PointsChange;
-                var tags = string.Concat(hand.WasDealer ? " · dealer" : "", hand.DeclaredRiichi ? " · riichi" : "", hand.MeldsCalled > 0 ? $" · {hand.MeldsCalled} called" : "");
-                var color = change switch
+                var tags = string.Concat(hand.WasDealer ? " · dealer" : "", hand.DeclaredRiichi ? " · riichi" : "", hand.MeldsCalled > 0 ? $" · {hand.MeldsCalled} called" : "",
+                                         hand.YakumanWin != null ? " · YAKUMAN" : hand.YakumanChances.Count > 0 ? " · yakuman chance" : "");
+                var color = (hand.YakumanWin != null, change) switch
                 {
-                    > 0 => TileWidgets.Good,
-                    < 0 => TileWidgets.Bad,
+                    (true, _) => TileWidgets.Yakuman,
+                    (_, > 0) => TileWidgets.Good,
+                    (_, < 0) => TileWidgets.Bad,
                     _ => TileWidgets.Muted,
                 };
                 using (ImRaii.PushColor(ImGuiCol.Text, color))
@@ -552,6 +571,10 @@ public class CoachWindow : Window, IDisposable
                     using (ImRaii.PushIndent())
                         ImGui.TextWrapped(r.Message);
                 }
+                if (hand.YakumanWin != null)
+                    ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman: {hand.YakumanWin}");
+                if (hand.YakumanChances.Count > 0)
+                    ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman chances: {string.Join(", ", hand.YakumanChances.Select(s => $"{s.Name} ({s.BestOutlook})"))}");
                 if (hand.Reviews.Count == 0) ImGui.TextColored(TileWidgets.Muted, "No reviews this hand.");
                 ImGui.TreePop();
             }

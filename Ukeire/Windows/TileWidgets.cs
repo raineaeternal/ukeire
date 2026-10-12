@@ -15,6 +15,7 @@ public static class TileWidgets
     public static readonly Vector4 Warn = new(0.95f, 0.75f, 0.30f, 1f);
     public static readonly Vector4 Bad = new(0.95f, 0.40f, 0.40f, 1f);
     public static readonly Vector4 Muted = new(0.65f, 0.65f, 0.65f, 1f);
+    public static readonly Vector4 Yakuman = new(1.00f, 0.82f, 0.30f, 1f);
 
     /// <summary>The tile icon set to draw with, resolved once per frame by the window that draws tiles.</summary>
     public static TileDesign Design { get; set; } = TileDesign.Traditional;

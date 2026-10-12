@@ -46,6 +46,14 @@ public sealed class ReviewRecord
     };
 }
 
+public sealed class YakumanSighting
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The best outlook the yakuman reached during the hand, as a <see cref="YakuOutlook"/> name.</summary>
+    public string BestOutlook { get; set; } = nameof(YakuOutlook.Possible);
+}
+
 public sealed class HandRecord
 {
     /// <summary>Tile kind of the round wind (27 = East).</summary>
@@ -58,6 +66,15 @@ public sealed class HandRecord
     public bool DeclaredRiichi { get; set; }
     public int MeldsCalled { get; set; }
     public List<ReviewRecord> Reviews { get; set; } = [];
+
+    /// <summary>Every yakuman the tutor saw as possible during the hand.</summary>
+    public List<YakumanSighting> YakumanChances { get; set; } = [];
+
+    /// <summary>
+    /// Set when the hand looks like a yakuman win: the yakuman the tutor was tracking, or a generic label when the
+    /// points say yakuman but no tracked one fits (a counted yakuman, or one the tutor doesn't spot). Null otherwise.
+    /// </summary>
+    public string? YakumanWin { get; set; }
 
     [JsonIgnore]
     public int PointsChange => PointsAfter - PointsBefore;
@@ -197,6 +214,35 @@ public sealed class GameHistory
         }
     }
 
+    /// <summary>Notes the yakuman in an analysis against the hand in progress. Safe to call from any thread.</summary>
+    public void NoteYakuman(IEnumerable<YakuPath> paths)
+    {
+        lock (gate)
+        {
+            if (hand == null) return;
+            foreach (var path in paths.Where(p => p.Yakuman))
+            {
+                var seen = hand.YakumanChances.FirstOrDefault(s => s.Name == path.Name);
+                if (seen == null) hand.YakumanChances.Add(new YakumanSighting { Name = path.Name, BestOutlook = path.Outlook.ToString() });
+                else if (!Enum.TryParse<YakuOutlook>(seen.BestOutlook, out var best) || path.Outlook < best) seen.BestOutlook = path.Outlook.ToString();
+            }
+        }
+    }
+
+    /// <summary>
+    /// A yakuman pays at least 32,000 (48,000 to a dealer). Nothing smaller gets there: a sanbaiman plus a
+    /// realistic pile of riichi sticks and honba stays under it.
+    /// </summary>
+    private static void CheckYakumanWin(HandRecord finished)
+    {
+        if (finished.PointsChange < (finished.WasDealer ? 48000 : 32000)) return;
+        var tracked = finished.YakumanChances
+            .Where(s => Enum.TryParse<YakuOutlook>(s.BestOutlook, out var o) && o <= YakuOutlook.Likely)
+            .OrderBy(s => Enum.Parse<YakuOutlook>(s.BestOutlook))
+            .FirstOrDefault();
+        finished.YakumanWin = tracked?.Name ?? "Yakuman-level win (a counted yakuman, or one the tutor didn't track)";
+    }
+
     /// <summary>Adds a review to the hand in progress. Safe to call from any thread.</summary>
     public void Add(ReviewEntry entry)
     {
@@ -254,7 +300,11 @@ public sealed class GameHistory
     private void StartHand(TableSnapshot snap, (int, int, int) key)
     {
         // Save at every hand boundary so a crash loses at most the current hand.
-        if (hand != null && current != null) Save(current);
+        if (hand != null && current != null)
+        {
+            CheckYakumanWin(hand);
+            Save(current);
+        }
         hand = new HandRecord
         {
             RoundWind = snap.RoundWind,
@@ -272,6 +322,7 @@ public sealed class GameHistory
     {
         var game = current!;
         game.Ended = DateTime.Now;
+        if (hand != null) CheckYakumanWin(hand);
         if (lastActive is { } last)
         {
             for (var i = 0; i < 4; i++) game.FinalPoints[i] = last.Points[(last.LocalSeat + i) & 3];
