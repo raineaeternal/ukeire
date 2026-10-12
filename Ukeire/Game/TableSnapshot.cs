@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ukeire.Mahjong;
 
 namespace Ukeire.Game;
@@ -10,7 +11,7 @@ public sealed record DiscardEntry(int Kind, uint Flags);
 /// What the local player can legitimately see: their own hand, every discard pile and every called meld.
 /// Opponents' concealed hands are never read.
 /// </summary>
-public sealed class TableSnapshot
+public sealed record TableSnapshot
 {
     public static readonly TableSnapshot Inactive = new() { IsActive = false, Status = "Not at a Doman Mahjong table." };
 
@@ -32,6 +33,13 @@ public sealed class TableSnapshot
     /// <summary>Table.DrawnTile as read, for the debug tab.</summary>
     public (uint Seat, uint Tile, uint Flags) RawDrawnTile { get; init; }
     public bool GameSaysCanRiichi { get; init; }
+
+    /// <summary>Seat and tile kind of the most recent discard (Table.LastDiscard), or -1.</summary>
+    public int LastDiscardSeat { get; init; } = -1;
+    public int LastDiscardKind { get; init; } = -1;
+
+    /// <summary>Table.LastDiscard as read, for the debug tab.</summary>
+    public (uint Seat, uint Tile, uint Flags) RawLastDiscard { get; init; }
 
     public int RoundWind { get; init; } = Tiles.East;
     public int SeatWind { get; init; } = Tiles.East;
@@ -88,6 +96,20 @@ public sealed class TableSnapshot
         return visible;
     }
 
+    /// <summary>The player's current placement, 1 to 4. Tied players share the better placement.</summary>
+    public int Placement => 1 + Enumerable.Range(0, 4).Count(seat => seat != LocalSeat && Points[seat] > Points[LocalSeat]);
+
+    public int AllMeldTiles
+    {
+        get
+        {
+            var n = 0;
+            foreach (var seatMelds in Melds)
+                foreach (var m in seatMelds) n += m.Kinds.Count;
+            return n;
+        }
+    }
+
     public int[] DiscardCounts(int seat)
     {
         var counts = new int[Tiles.KindCount];
@@ -103,6 +125,8 @@ public sealed class TableSnapshot
         hash.Add(LocalSeat);
         foreach (var c in Hand) hash.Add(c);
         hash.Add(DrawnTile);
+        hash.Add(LastDiscardSeat);
+        hash.Add(LastDiscardKind);
         foreach (var pile in Discards)
         {
             hash.Add(pile.Count);

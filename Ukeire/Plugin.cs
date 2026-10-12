@@ -17,6 +17,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IGameConfig GameConfig { get; private set; } = null!;
 
     private const string CommandName = "/ukeire";
 
@@ -39,7 +41,7 @@ public sealed class Plugin : IDalamudPlugin
         // Nothing above this line may touch ClientStructs; the Coach only reads the table from Framework.Update.
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
-        Coach = new Coach(Configuration, Framework, Log);
+        Coach = new Coach(Configuration, Framework, Log, new GameHistory(PluginInterface.ConfigDirectory, Log));
         ConfigWindow = new ConfigWindow(this);
         CoachWindow = new CoachWindow(this);
 
@@ -48,7 +50,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the Doman" + "Mahjong tutor. \"/ukeire config\" opens the settings."
+            HelpMessage = "Open the Doman Mahjong tutor. \"/ukeire config\" opens the settings."
         });
 
         PluginInterface.UiBuilder.Draw += DrawUi;
@@ -67,6 +69,7 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow.Dispose();
         CoachWindow.Dispose();
         Coach.Dispose();
+        Coach.History.Flush();
 
         CommandManager.RemoveHandler(CommandName);
     }

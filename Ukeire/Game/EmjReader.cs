@@ -20,6 +20,16 @@ public static unsafe class EmjReader
     private const uint UnusedMeldTile = 255;
     private const uint RedFiveFlag = 0x100;
 
+    /// <summary>AgentEmj.MatchType, or 0 when the agent isn't available. Framework thread only.</summary>
+    public static uint MatchType
+    {
+        get
+        {
+            var agent = AgentEmj.Instance();
+            return agent == null ? 0 : agent->MatchType;
+        }
+    }
+
     public static TableSnapshot Read()
     {
         var agent = AgentEmj.Instance();
@@ -73,6 +83,12 @@ public static unsafe class EmjReader
         for (var i = 0; i < handTiles.Length; i++) rawHandTiles[i] = handTiles[i];
 
         LogDrawChanges(mySeat, me.HandTileCount, rawHandTiles, drawnInfo.Seat, drawnInfo.Tile, drawnInfo.Flags);
+
+        // The most recent discard is public: it's the tile everyone can call.
+        ref var lastInfo = ref table->LastDiscard;
+        var lastKind = (int)(lastInfo.Tile & 0xFF);
+        var lastSeat = (int)lastInfo.Seat;
+        if (!Tiles.IsValid(lastKind) || lastSeat is < 0 or > 3) (lastKind, lastSeat) = (-1, -1);
 
         var melds = new List<OpenMeld>[4];
         var discards = new List<DiscardEntry>[4];
@@ -153,6 +169,9 @@ public static unsafe class EmjReader
             RawHandTileCount = me.HandTileCount,
             RawDrawnTile = (drawnInfo.Seat, drawnInfo.Tile, drawnInfo.Flags),
             GameSaysCanRiichi = me.CanRiichi,
+            LastDiscardSeat = lastSeat,
+            LastDiscardKind = lastKind,
+            RawLastDiscard = (lastInfo.Seat, lastInfo.Tile, lastInfo.Flags),
             RoundWind = roundWind,
             SeatWind = seatWind,
             Dealer = dealer,

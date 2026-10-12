@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -18,6 +19,9 @@ public class CoachWindow : Window, IDisposable
     private Coach Coach => plugin.Coach;
     private Configuration Config => plugin.Configuration;
 
+    /// <summary>Lesson to open on the Learn tab next frame, set by the "Explain" buttons.</summary>
+    private string? jumpToLesson;
+
     public CoachWindow(Plugin plugin) : base("Ukeire - Mahjong Tutor###UkeireCoach")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -29,6 +33,11 @@ public class CoachWindow : Window, IDisposable
     }
 
     public void Dispose() { }
+
+    public override void PreDraw()
+    {
+        TileWidgets.Design = TileIcons.Resolve(Config.TileDesign);
+    }
 
     public override void Draw()
     {
@@ -44,8 +53,11 @@ public class CoachWindow : Window, IDisposable
             if (tab.Success) DrawDefense(snap, analysis);
         using (var tab = ImRaii.TabItem("Review"))
             if (tab.Success) DrawReview();
-        using (var tab = ImRaii.TabItem("Learn"))
-            if (tab.Success) DrawLearn();
+        using (var tab = ImRaii.TabItem("History"))
+            if (tab.Success) DrawHistory();
+        var learnFlags = jumpToLesson != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        using (var tab = ImRaii.TabItem("Learn", learnFlags))
+            if (tab.Success) DrawLearn(snap, analysis);
         using (var tab = ImRaii.TabItem("Debug"))
             if (tab.Success) DrawDebug(snap);
     }
@@ -74,22 +86,79 @@ public class CoachWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        if (a == null || a.Snapshot.Fingerprint() != snap.Fingerprint())
+        if (!Coach.IsCurrent(a))
         {
+            if (Config.ExplainCalls && Coach.CallWindowOpen) ImGui.TextColored(TileWidgets.Warn, "Checking whether you can call...");
             ImGui.TextColored(TileWidgets.Muted, "Analyzing...");
             DrawContext(snap);
             return;
         }
 
+        if (Config.ExplainCalls) DrawCalls(a);
         if (Config.ShowShanten) DrawStatus(a);
         DrawWarnings(a);
 
-        if (snap.IsDiscardTurn) DrawHints(a);
-        else ImGui.TextColored(TileWidgets.Muted, "Waiting for your turn. Hints open up when you have a tile to discard.");
+        switch (Coach.IsRiichiLocked, snap.IsDiscardTurn)
+        {
+            case (true, _):
+                ImGui.TextColored(TileWidgets.Muted, "You're in riichi, so your hand is locked: discard every tile you draw unless it wins. The analysis stays on the hand you declared with.");
+                break;
+            case (_, true):
+                DrawHints(a);
+                break;
+            default:
+                ImGui.TextColored(TileWidgets.Muted, "Waiting for your turn. Hints open up when you have a tile to discard.");
+                break;
+        }
 
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("Yaku you can aim for", ImGuiTreeNodeFlags.DefaultOpen)) DrawYaku(a);
         if (ImGui.CollapsingHeader("Round info")) DrawContext(snap);
+    }
+
+    private void DrawCalls(HandAnalysis a)
+    {
+        var calls = a.Calls.Where(c => !c.Option.OnDiscard || Coach.CallWindowOpen).ToList();
+        if (calls.Count == 0) return;
+
+        var snap = a.Snapshot;
+        var header = calls[0].Option.OnDiscard
+            ? $"Call chance: {SeatName(snap, snap.LastDiscardSeat)} discarded {Tiles.Name(snap.LastDiscardKind)}"
+            : "You can declare a kan this turn";
+        ImGui.TextColored(TileWidgets.Warn, header);
+        TileWidgets.HelpMarker("Worked out from your hand and the visible tiles only. Passing is always an option: you don't have to call.");
+        ExplainButton("calling");
+
+        for (var i = 0; i < calls.Count; i++)
+        {
+            var c = calls[i];
+            using var id = ImRaii.PushId($"call{i}");
+            using (ImRaii.Group()) TileWidgets.Row(c.Option.Meld.Kinds, "m");
+            ImGui.SameLine();
+            using (ImRaii.Group())
+            {
+                var color = c.Risk switch
+                {
+                    CallRisk.Low => TileWidgets.Good,
+                    CallRisk.Medium => TileWidgets.Warn,
+                    _ => TileWidgets.Bad,
+                };
+                ImGui.TextUnformatted(c.Option.Name);
+                ImGui.SameLine();
+                ImGui.TextColored(color, $"{c.Risk} risk");
+                ImGui.TextWrapped(c.Summary);
+            }
+            using (ImRaii.PushIndent())
+            {
+                foreach (var pro in c.Pros)
+                    using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Good))
+                        ImGui.TextWrapped($"+ {pro}");
+                foreach (var con in c.Cons)
+                    using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Bad))
+                        ImGui.TextWrapped($"- {con}");
+            }
+        }
+        ImGui.Separator();
     }
 
     private void DrawStatus(HandAnalysis a)
@@ -101,32 +170,56 @@ public class CoachWindow : Window, IDisposable
             HandForm.ThirteenOrphans => " via Thirteen Orphans",
             _ => string.Empty,
         };
-        if (s.IsComplete)
-            ImGui.TextColored(TileWidgets.Good, "Your hand is complete. You can win!");
-        else if (s.IsTenpai && a.Acceptances != null)
+        switch (s, a.Acceptances)
         {
-            ImGui.TextColored(TileWidgets.Good, $"Tenpai{formNote}. Waiting on {a.Acceptances.Sum(x => x.Remaining)} unseen tiles:");
-            TileWidgets.Row(a.Acceptances.Select(x => x.Kind), "wait");
-            if (a.Acceptances.All(x => x.Remaining == 0))
-                ImGui.TextColored(TileWidgets.Bad, "Every copy of your waits is already visible. This wait can't win.");
-        }
-        else
-        {
-            ImGui.TextUnformatted($"Shanten: {s.Value}{formNote}");
-            TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai). See the Learn tab.");
-            if (a.Acceptances is { Count: > 0 } acc)
-            {
-                ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
-            }
+            case ({ IsComplete: true }, _):
+                ImGui.TextColored(TileWidgets.Good, "Your hand is complete. You can win!");
+                break;
+            case ({ IsTenpai: true }, { } waits):
+                ImGui.TextColored(TileWidgets.Good, $"Tenpai{formNote}. Waiting on {waits.Sum(x => x.Remaining)} unseen tiles:");
+                TileWidgets.Row(waits.Select(x => x.Kind), "wait");
+                if (waits.All(x => x.Remaining == 0))
+                    ImGui.TextColored(TileWidgets.Bad, "Every copy of your waits is already visible. This wait can't win.");
+                break;
+            default:
+                ImGui.TextUnformatted($"Shanten: {s.Value}{formNote}");
+                TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai).");
+                ExplainButton("shanten");
+                if (a.Acceptances is { Count: > 0 } acc)
+                    ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
+                break;
         }
     }
 
     private void DrawWarnings(HandAnalysis a)
     {
+        if (a.FuritenWaits.Count > 0)
+        {
+            ImGui.TextColored(TileWidgets.Bad, $"Furiten: {Tiles.Join(a.FuritenWaits)} is in your own discards. You can't win on another player's discard.");
+            ExplainButton("furiten");
+        }
+        foreach (var l in a.Liabilities)
+        {
+            ImGui.TextColored(TileWidgets.Bad, $"{SeatName(a.Snapshot, l.Seat)} is one set from {l.Yakuman}. If you discard {Tiles.Name(l.Kind)} and they pon it, you pay for the whole yakuman.");
+            ExplainButton("doman");
+        }
         if (a.OpenWithoutYaku)
-            ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands. See the Learn tab: \"You need a yaku\".");
+        {
+            ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands.");
+            ExplainButton("yaku");
+        }
         if (a.Threats.Count > 0)
+        {
             ImGui.TextColored(TileWidgets.Warn, $"{string.Join(", ", a.Threats.Select(t => SeatName(a.Snapshot, t.Seat)))} declared riichi. Check the Defense tab before pushing.");
+            ExplainButton("pushfold");
+        }
+    }
+
+    /// <summary>A small button after the last item that switches to the Learn tab with this lesson open.</summary>
+    private void ExplainButton(string lessonId)
+    {
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Explain##{lessonId}")) jumpToLesson = lessonId;
     }
 
     private void DrawHints(HandAnalysis a)
@@ -200,7 +293,7 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextColored(TileWidgets.Muted, "No clear yaku direction yet.");
             return;
         }
-        foreach (var y in a.YakuPaths)
+        foreach (var y in a.YakuPaths.Where(p => !p.Yakuman))
         {
             var color = y.Outlook switch
             {
@@ -212,12 +305,26 @@ public class CoachWindow : Window, IDisposable
             using (ImRaii.PushIndent())
                 ImGui.TextWrapped(y.Explanation);
         }
+
+        var yakuman = a.YakuPaths.Where(p => p.Yakuman).ToList();
+        if (yakuman.Count == 0) return;
+        ImGui.Spacing();
+        ImGui.TextColored(TileWidgets.Yakuman, "Yakuman chance");
+        TileWidgets.HelpMarker("A yakuman is a limit hand: 32,000 points (48,000 as dealer). They're rare and hard to finish, so treat this as a possibility, not a plan.");
+        foreach (var y in yakuman)
+        {
+            ImGui.TextColored(TileWidgets.Yakuman, $"{y.Name} [{y.Outlook}]");
+            using (ImRaii.PushIndent())
+                ImGui.TextWrapped(y.Explanation);
+        }
     }
 
     private void DrawContext(TableSnapshot snap)
     {
         ImGui.TextUnformatted($"{Tiles.Name(snap.RoundWind)} round, hand {snap.Dealer + 1}  ·  You are {Tiles.Name(snap.SeatWind)}");
         ImGui.TextUnformatted($"Honba: {snap.Honba}  Riichi sticks: {snap.RiichiSticks}  Tiles left in the wall: {snap.WallTilesRemaining}");
+        ImGui.TextUnformatted($"You're in {Ordinal(snap.Placement)} place.");
+        TileWidgets.HelpMarker("Doman Mahjong has no uma or oka: your rating only depends on where you finish, not how many points you finish with.");
 
         ImGui.TextUnformatted("Dora indicators:");
         for (var i = 0; i < snap.DoraIndicators.Count; i++)
@@ -263,6 +370,13 @@ public class CoachWindow : Window, IDisposable
         }
         ImGui.Separator();
 
+        if (a != null && a.Liabilities.Count > 0)
+        {
+            foreach (var l in a.Liabilities)
+                ImGui.TextColored(TileWidgets.Bad, $"Liability: {SeatName(snap, l.Seat)} needs one more set for {l.Yakuman}. Hold on to your {Tiles.Name(l.Kind)}: if they pon it from you, you pay the full yakuman.");
+            ImGui.Separator();
+        }
+
         if (a == null || a.Threats.Count == 0)
         {
             ImGui.TextWrapped("No threats yet. When someone declares riichi, each tile in your hand is rated here using only public information: their discards and every visible tile.");
@@ -305,21 +419,33 @@ public class CoachWindow : Window, IDisposable
         if (reviews.Count == 0)
         {
             ImGui.TextWrapped(Config.AutoReview
-                ? "Each discard you make will be reviewed here: what it did to your hand, and what the most efficient choice would have been."
-                : "Discard reviews are turned off in the settings.");
+                ? "Each discard and call you make will be reviewed here: what it did to your hand, and what the better choice would have been."
+                : "Reviews are turned off in the settings.");
             return;
         }
 
-        var sound = reviews.Count(r => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive);
-        var unaided = reviews.Where(r => r.HintUsed == HintTier.None).ToList();
-        ImGui.TextUnformatted($"Sound discards: {sound}/{reviews.Count} ({100 * sound / reviews.Count}%)");
-        if (unaided.Count > 0)
+        static bool Sound(ReviewEntry r) => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive;
+        var discards = reviews.Where(r => r.Kind == ReviewKind.Discard).ToList();
+        var calls = reviews.Where(r => r.Kind == ReviewKind.Call).ToList();
+        if (discards.Count > 0)
         {
-            var unaidedSound = unaided.Count(r => r.Verdict is Verdict.Best or Verdict.Good or Verdict.Defensive);
+            var sound = discards.Count(Sound);
+            ImGui.TextUnformatted($"Sound discards: {sound}/{discards.Count} ({100 * sound / discards.Count}%)");
+            var unaided = discards.Where(r => r.HintUsed == HintTier.None).ToList();
+            if (unaided.Count > 0)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(TileWidgets.Muted, $"| without hints: {unaided.Count(Sound)}/{unaided.Count}");
+            }
             ImGui.SameLine();
-            ImGui.TextColored(TileWidgets.Muted, $"| without hints: {unaidedSound}/{unaided.Count}");
         }
-        ImGui.SameLine();
+        if (calls.Count > 0)
+        {
+            if (discards.Count > 0) ImGui.TextColored(TileWidgets.Muted, "|");
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"Sound calls: {calls.Count(Sound)}/{calls.Count}");
+            ImGui.SameLine();
+        }
         if (ImGui.SmallButton("Clear")) Coach.ClearReviews();
         ImGui.Separator();
 
@@ -333,14 +459,18 @@ public class CoachWindow : Window, IDisposable
             {
                 Verdict.Best or Verdict.Good => TileWidgets.Good,
                 Verdict.Defensive => new Vector4(0.55f, 0.75f, 0.95f, 1f),
-                Verdict.Slow => TileWidgets.Warn,
+                Verdict.Slow or Verdict.Risky or Verdict.Pointless => TileWidgets.Warn,
                 _ => TileWidgets.Bad,
             };
-            TileWidgets.Tile(r.Discard, "d");
+            using (ImRaii.Group())
+            {
+                if (r.Kind == ReviewKind.Call) TileWidgets.Row(r.Meld, "m");
+                else TileWidgets.Tile(r.Tile, "d");
+            }
             ImGui.SameLine();
             using (ImRaii.Group())
             {
-                ImGui.TextColored(color, r.Verdict.ToString());
+                ImGui.TextColored(color, r.Kind == ReviewKind.Call ? $"Call: {VerdictName(r.Verdict)}" : VerdictName(r.Verdict));
                 ImGui.SameLine();
                 ImGui.TextColored(TileWidgets.Muted, $"{r.Time:HH:mm:ss}  {r.Hand}{(r.HintUsed > HintTier.None ? $"  (hint: {r.HintUsed})" : string.Empty)}");
                 ImGui.TextWrapped(r.Message);
@@ -349,13 +479,174 @@ public class CoachWindow : Window, IDisposable
         }
     }
 
-    private static void DrawLearn()
+    private static string Ordinal(int n) => n switch
     {
-        foreach (var (title, body) in Lessons.All)
+        1 => "1st",
+        2 => "2nd",
+        3 => "3rd",
+        4 => "4th",
+        _ => "-",
+    };
+
+    private static string Percent(IEnumerable<ReviewRecord> reviews)
+    {
+        var list = reviews.ToList();
+        return list.Count == 0 ? "-" : $"{100 * list.Count(r => r.IsSound) / list.Count}% of {list.Count}";
+    }
+
+    private void DrawHistory()
+    {
+        var history = Coach.History;
+        var games = history.Games;
+        if (games.Count == 0)
         {
-            if (!ImGui.CollapsingHeader(title)) continue;
-            using (ImRaii.PushIndent())
-                ImGui.TextWrapped(body);
+            ImGui.TextWrapped("Every game you play is saved here, with each hand's points and the reviews of your discards and calls. It's kept across plugin updates.");
+            return;
+        }
+
+        var finished = games.Where(g => g.Placement > 0).ToList();
+        var reviews = games.SelectMany(g => g.Reviews).ToList();
+        ImGui.TextUnformatted($"Games: {games.Count}");
+        if (finished.Count > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"| Average placement: {finished.Average(g => g.Placement):0.00}  | 1st/2nd/3rd/4th: {string.Join("/", Enumerable.Range(1, 4).Select(p => finished.Count(g => g.Placement == p)))}");
+            TileWidgets.HelpMarker("Doman Mahjong's rating only counts placement, so this matters more than your points.");
+        }
+        ImGui.TextUnformatted($"Sound discards: {Percent(reviews.Where(r => !r.IsCall))}  | Sound calls: {Percent(reviews.Where(r => r.IsCall))}");
+        var hands = games.SelectMany(g => g.Hands).ToList();
+        var yakumanWins = hands.Count(h => h.YakumanWin != null);
+        var yakumanChances = hands.Count(h => h.YakumanChances.Count > 0);
+        if (yakumanWins + yakumanChances > 0)
+            ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman wins: {yakumanWins}  | Hands with a yakuman chance: {yakumanChances}");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Copy folder path")) ImGui.SetClipboardText(history.FolderPath);
+        TileWidgets.HelpMarker($"Saved as one JSON file per game in {history.FolderPath}");
+        ImGui.Separator();
+
+        using var child = ImRaii.Child("##history", Vector2.Zero);
+        if (!child.Success) return;
+        var current = history.Current;
+        foreach (var game in games)
+        {
+            using var id = ImRaii.PushId(game.Id);
+            var outcome = (game == current, game.Ended.HasValue) switch
+            {
+                (true, _) => "in progress",
+                (_, false) => "unfinished",
+                _ => $"{Ordinal(game.Placement)}, {game.FinalPoints[0]:N0}",
+            };
+            var gameReviews = game.Reviews.ToList();
+            var header = $"{game.Started:yyyy-MM-dd HH:mm}  ·  {outcome}  ·  {game.Hands.Count} hands  ·  discards {Percent(gameReviews.Where(r => !r.IsCall))}";
+            if (!ImGui.CollapsingHeader($"{header}###game")) continue;
+
+            using var indent = ImRaii.PushIndent();
+            if (game.Ended.HasValue)
+                ImGui.TextColored(TileWidgets.Muted, $"Final: you {game.FinalPoints[0]:N0}, right {game.FinalPoints[1]:N0}, across {game.FinalPoints[2]:N0}, left {game.FinalPoints[3]:N0}");
+            if (game != current)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Delete") && ImGui.GetIO().KeyCtrl) history.Delete(game);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Hold Ctrl and click to delete this game.");
+            }
+
+            for (var h = 0; h < game.Hands.Count; h++)
+            {
+                var hand = game.Hands[h];
+                var change = hand.PointsChange;
+                var tags = string.Concat(hand.WasDealer ? " · dealer" : "", hand.DeclaredRiichi ? " · riichi" : "", hand.MeldsCalled > 0 ? $" · {hand.MeldsCalled} called" : "",
+                                         hand.YakumanWin != null ? " · YAKUMAN" : hand.YakumanChances.Count > 0 ? " · yakuman chance" : "");
+                var color = (hand.YakumanWin != null, change) switch
+                {
+                    (true, _) => TileWidgets.Yakuman,
+                    (_, > 0) => TileWidgets.Good,
+                    (_, < 0) => TileWidgets.Bad,
+                    _ => TileWidgets.Muted,
+                };
+                using (ImRaii.PushColor(ImGuiCol.Text, color))
+                {
+                    if (!ImGui.TreeNode($"{hand.Label}  {change:+#,0;-#,0;0}{tags}  ·  discards {Percent(hand.Reviews.Where(r => !r.IsCall))}###hand{h}"))
+                        continue;
+                }
+                foreach (var r in hand.Reviews)
+                {
+                    var verdict = Enum.TryParse<Verdict>(r.Verdict, out var v) ? v : (Verdict?)null;
+                    var vColor = verdict switch
+                    {
+                        Verdict.Best or Verdict.Good => TileWidgets.Good,
+                        Verdict.Defensive => new Vector4(0.55f, 0.75f, 0.95f, 1f),
+                        Verdict.Slow or Verdict.Risky or Verdict.Pointless => TileWidgets.Warn,
+                        null => TileWidgets.Muted,
+                        _ => TileWidgets.Bad,
+                    };
+                    var label = verdict is { } known ? VerdictName(known) : r.Verdict;
+                    ImGui.TextColored(vColor, r.IsCall ? $"Call: {label}" : label);
+                    ImGui.SameLine();
+                    ImGui.TextColored(TileWidgets.Muted, $"{(r.IsCall ? Tiles.Join(r.Meld) : Tiles.IsValid(r.Tile) ? Tiles.Short(r.Tile) : "?")}  {r.Hand}{(r.IsUnaided ? "" : $"  (hint: {r.HintUsed})")}");
+                    using (ImRaii.PushIndent())
+                        ImGui.TextWrapped(r.Message);
+                }
+                if (hand.YakumanWin != null)
+                    ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman: {hand.YakumanWin}");
+                if (hand.YakumanChances.Count > 0)
+                    ImGui.TextColored(TileWidgets.Yakuman, $"Yakuman chances: {string.Join(", ", hand.YakumanChances.Select(s => $"{s.Name} ({s.BestOutlook})"))}");
+                if (hand.Reviews.Count == 0) ImGui.TextColored(TileWidgets.Muted, "No reviews this hand.");
+                ImGui.TreePop();
+            }
+        }
+    }
+
+    private static string VerdictName(Verdict v) => v switch
+    {
+        Verdict.NoYaku => "No yaku",
+        _ => v.ToString(),
+    };
+
+    private void DrawLearn(TableSnapshot snap, HandAnalysis? a)
+    {
+        var jump = jumpToLesson;
+        jumpToLesson = null;
+        var spotlights = Lessons.Relevant(snap, Coach.IsCurrent(a) ? a : null, Coach.LastReview);
+
+        switch (spotlights.Count, snap.IsActive)
+        {
+            case (> 0, _):
+                ImGui.TextColored(TileWidgets.Good, "Right now at your table");
+                TileWidgets.HelpMarker("Lessons picked from your current hand, the round and your last discard. They never point at a specific discard; use the hints for that.");
+                foreach (var s in spotlights)
+                    LessonHeader(s.Lesson, s.Why, jump, "now");
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.TextUnformatted("All lessons");
+                break;
+            case (_, true):
+                ImGui.TextColored(TileWidgets.Muted, "Nothing in particular stands out in this hand. Browse the basics below.");
+                break;
+            default:
+                ImGui.TextColored(TileWidgets.Muted, "At the table, lessons that apply to your hand will show up here.");
+                break;
+        }
+
+        foreach (var lesson in Lessons.All)
+        {
+            // When a lesson is spotlighted, the jump opens that copy instead of the one in the full list.
+            var jumpHere = spotlights.Any(s => s.Lesson.Id == jump) ? null : jump;
+            LessonHeader(lesson, null, jumpHere, "all");
+        }
+    }
+
+    private static void LessonHeader(Lesson lesson, string? why, string? jump, string scope)
+    {
+        var target = jump == lesson.Id;
+        if (target) ImGui.SetNextItemOpen(true);
+        var open = ImGui.CollapsingHeader($"{lesson.Title}##{scope}_{lesson.Id}");
+        if (open && target) ImGui.SetScrollHereY(0f);
+        using (ImRaii.PushIndent())
+        {
+            if (why != null)
+                using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Warn))
+                    ImGui.TextWrapped(why);
+            if (open) ImGui.TextWrapped(lesson.Body);
         }
     }
 
@@ -363,11 +654,15 @@ public class CoachWindow : Window, IDisposable
     {
         ImGui.TextColored(TileWidgets.Muted, "Raw data read from the table. Useful for mapping unknown flags.");
         ImGui.TextUnformatted($"Status: {snap.Status}  Active: {snap.IsActive}  Local seat: {snap.LocalSeat}");
+        var emj = TileIcons.ReadGameSetting();
+        ImGui.TextUnformatted($"EmjSetting: {(emj is { } e ? $"{e.Value} (0b{Convert.ToString(e.Value, 2)}) in {e.Section}" : "unreadable")}  Tile design drawn: {TileWidgets.Design}");
+        TileWidgets.HelpMarker("Switch the tile design in the game's Doman Mahjong settings and watch which bit changes. That bit is what \"Match the game\" should read.");
         if (!snap.IsActive) return;
         ImGui.TextUnformatted($"Hand tiles: {snap.HandTileCount}  Melds: {snap.OpenMeldCount}  Discard turn: {snap.IsDiscardTurn}  Game says can riichi: {snap.GameSaysCanRiichi}");
         ImGui.TextUnformatted($"Hand: {Tiles.Notation(snap.Hand)}  Drawn: {(snap.DrawnTile >= 0 ? Tiles.Short(snap.DrawnTile) : "-")}");
         ImGui.TextUnformatted($"Player.HandTileCount: {snap.RawHandTileCount}  HandTiles: {string.Join(" ", snap.RawHandTiles.Select(t => t.ToString("X")))}");
         ImGui.TextUnformatted($"Table.DrawnTile  Seat: {snap.RawDrawnTile.Seat}  Tile: {snap.RawDrawnTile.Tile:X}  Flags: {snap.RawDrawnTile.Flags:X}");
+        ImGui.TextUnformatted($"Table.LastDiscard  Seat: {snap.RawLastDiscard.Seat}  Tile: {snap.RawLastDiscard.Tile:X}  Flags: {snap.RawLastDiscard.Flags:X}  Call window open: {Coach.CallWindowOpen}  Wall: {snap.WallTilesRemaining}");
         for (var seat = 0; seat < 4; seat++)
         {
             if (!ImGui.TreeNode($"Seat {seat} ({SeatName(snap, seat)})##dbg{seat}")) continue;

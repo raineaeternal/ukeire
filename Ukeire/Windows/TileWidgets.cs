@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Ukeire.Mahjong;
@@ -14,6 +15,10 @@ public static class TileWidgets
     public static readonly Vector4 Warn = new(0.95f, 0.75f, 0.30f, 1f);
     public static readonly Vector4 Bad = new(0.95f, 0.40f, 0.40f, 1f);
     public static readonly Vector4 Muted = new(0.65f, 0.65f, 0.65f, 1f);
+    public static readonly Vector4 Yakuman = new(1.00f, 0.82f, 0.30f, 1f);
+
+    /// <summary>The tile icon set to draw with, resolved once per frame by the window that draws tiles.</summary>
+    public static TileDesign Design { get; set; } = TileDesign.Traditional;
 
     public static Vector4 SuitColor(int kind)
     {
@@ -35,18 +40,35 @@ public static class TileWidgets
         _ => Bad,
     };
 
-    /// <summary>Draws one tile chip. Returns true when clicked.</summary>
+    /// <summary>
+    /// Draws one tile using the game's own tile icon for the current <see cref="Design"/>. Returns true when clicked.
+    /// Falls back to a coloured chip with the tile's short name while the icon loads.
+    /// </summary>
     public static bool Tile(int kind, string id, bool red = false, Vector4? outline = null)
     {
+        // The game's tile icons are 40x52.
         var size = new Vector2(34, 44) * ImGuiHelpers.GlobalScale;
-        using var color = ImRaii.PushColor(ImGuiCol.Button, SuitColor(kind))
-                                .Push(ImGuiCol.ButtonHovered, SuitColor(kind) * 1.25f)
-                                .Push(ImGuiCol.ButtonActive, SuitColor(kind) * 1.4f)
-                                .Push(ImGuiCol.Border, outline ?? Vector4.Zero);
-        using var style = ImRaii.PushStyle(ImGuiStyleVar.FrameBorderSize, outline.HasValue ? 2f * ImGuiHelpers.GlobalScale : 0f);
-        var label = red ? $"{Tiles.Short(kind)}*" : Tiles.Short(kind);
-        var clicked = ImGui.Button($"{label}##{id}", size);
-        if (ImGui.IsItemHovered())
+        var pos = ImGui.GetCursorScreenPos();
+        var clicked = ImGui.InvisibleButton($"##{id}", size);
+        var hovered = ImGui.IsItemHovered();
+        var drawList = ImGui.GetWindowDrawList();
+        var rounding = 3f * ImGuiHelpers.GlobalScale;
+
+        var icon = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(TileIcons.IconId(kind, red, Design))).GetWrapOrDefault();
+        if (icon != null)
+        {
+            drawList.AddImageRounded(icon.Handle, pos, pos + size, Vector2.Zero, Vector2.One, 0xFFFFFFFF, rounding);
+        }
+        else
+        {
+            drawList.AddRectFilled(pos, pos + size, ImGui.GetColorU32(SuitColor(kind)), rounding);
+            var label = red ? $"{Tiles.Short(kind)}*" : Tiles.Short(kind);
+            drawList.AddText(pos + ((size - ImGui.CalcTextSize(label)) / 2), 0xFFFFFFFF, label);
+        }
+        if (hovered) drawList.AddRectFilled(pos, pos + size, 0x30FFFFFF, rounding);
+        if (outline.HasValue) drawList.AddRect(pos, pos + size, ImGui.GetColorU32(outline.Value), rounding, ImDrawFlags.None, 2f * ImGuiHelpers.GlobalScale);
+
+        if (hovered)
             ImGui.SetTooltip(red ? $"{Tiles.Name(kind)} (red five, dora)" : Tiles.Name(kind));
         return clicked;
     }

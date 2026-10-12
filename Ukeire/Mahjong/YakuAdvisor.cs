@@ -11,7 +11,9 @@ public enum YakuOutlook
     Possible,
 }
 
-public sealed record YakuPath(string Name, YakuOutlook Outlook, string Explanation);
+/// <param name="Yakuman">A yakuman: a limit hand worth far more than ordinary yaku, and far rarer.</param>
+/// <param name="ClosedOnly">Only counts while the hand stays closed.</param>
+public sealed record YakuPath(string Name, YakuOutlook Outlook, string Explanation, bool Yakuman = false, bool ClosedOnly = false);
 
 public sealed record OpenMeld(IReadOnlyList<int> Kinds, bool IsConcealedKan)
 {
@@ -37,7 +39,8 @@ public static class YakuAdvisor
 
         if (closed)
             paths.Add(new YakuPath("Riichi", YakuOutlook.Possible,
-                "Your hand is closed, so declaring riichi at tenpai always gives you a yaku. Closed hands are the safest default while you're learning."));
+                "Your hand is closed, so declaring riichi at tenpai always gives you a yaku. Closed hands are the safest default while you're learning.",
+                ClosedOnly: true));
 
         // Yakuhai: dragons, round wind, seat wind.
         for (var k = 27; k < Tiles.KindCount; k++)
@@ -45,12 +48,15 @@ public static class YakuAdvisor
             var valuable = Tiles.IsDragon(k) || k == roundWind || k == seatWind;
             if (!valuable) continue;
             var why = Tiles.IsDragon(k) ? "dragon" : (k == roundWind && k == seatWind) ? "round and seat wind (double value)" : k == roundWind ? "round wind" : "seat wind";
-            if (melds.Any(m => !m.IsSequence && m.Kind == k))
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Secured, $"You have a set of {Tiles.Name(k)}, a {why}. That's one han and a yaku."));
-            else if (hand[k] >= 3)
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Secured, $"A concealed triplet of {Tiles.Name(k)} ({why}) is already a yaku."));
-            else if (hand[k] == 2)
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Likely, $"A pair of {Tiles.Name(k)} ({why}). Calling pon on the third copy gives you a yaku and lets you open your hand safely."));
+            var name = $"Yakuhai ({Tiles.Short(k)})";
+            var yakuhai = (called: melds.Any(m => !m.IsSequence && m.Kind == k), held: hand[k]) switch
+            {
+                (true, _) => new YakuPath(name, YakuOutlook.Secured, $"You have a set of {Tiles.Name(k)}, a {why}. That's one han and a yaku."),
+                (_, >= 3) => new YakuPath(name, YakuOutlook.Secured, $"A concealed triplet of {Tiles.Name(k)} ({why}) is already a yaku."),
+                (_, 2) => new YakuPath(name, YakuOutlook.Likely, $"A pair of {Tiles.Name(k)} ({why}). Calling pon on the third copy gives you a yaku and lets you open your hand safely."),
+                _ => null,
+            };
+            if (yakuhai != null) paths.Add(yakuhai);
         }
 
         // Tanyao: all simples.
@@ -78,12 +84,15 @@ public static class YakuAdvisor
         for (var s = 1; s < 3; s++)
             if (suitCount[s] > suitCount[mainSuit]) mainSuit = s;
         var offSuit = total - suitCount[mainSuit] - honors;
-        if (offSuit == 0 && honors == 0)
-            paths.Add(new YakuPath("Chinitsu (Full Flush)", YakuOutlook.Likely, $"Everything is {Tiles.SuitName(mainSuit)}. That's six han closed, five open."));
-        else if (offSuit == 0)
-            paths.Add(new YakuPath("Honitsu (Half Flush)", YakuOutlook.Likely, $"Only {Tiles.SuitName(mainSuit)} and honors. That's three han closed, two open."));
-        else if (offSuit <= 3 && suitCount[mainSuit] + honors >= 9)
-            paths.Add(new YakuPath("Honitsu (Half Flush)", YakuOutlook.Possible, $"{offSuit} tile(s) outside {Tiles.SuitName(mainSuit)} and honors. Dropping them would aim you at a half flush."));
+        var flush = (offSuit, honors) switch
+        {
+            (0, 0) => new YakuPath("Chinitsu (Full Flush)", YakuOutlook.Likely, $"Everything is {Tiles.SuitName(mainSuit)}. That's six han closed, five open."),
+            (0, _) => new YakuPath("Honitsu (Half Flush)", YakuOutlook.Likely, $"Only {Tiles.SuitName(mainSuit)} and honors. That's three han closed, two open."),
+            (<= 3, _) when suitCount[mainSuit] + honors >= 9 =>
+                new YakuPath("Honitsu (Half Flush)", YakuOutlook.Possible, $"{offSuit} tile(s) outside {Tiles.SuitName(mainSuit)} and honors. Dropping them would aim you at a half flush."),
+            _ => null,
+        };
+        if (flush != null) paths.Add(flush);
 
         // Pair-based hands.
         var pairs = 0;
@@ -95,11 +104,12 @@ public static class YakuAdvisor
         }
         if (closed && pairs + triplets >= 4 && melds.Count == 0)
             paths.Add(new YakuPath("Chiitoitsu (Seven Pairs)", pairs >= 5 ? YakuOutlook.Likely : YakuOutlook.Possible,
-                $"You have {pairs + triplets} pairs. Seven different pairs is a closed-only yaku worth two han."));
+                $"You have {pairs + triplets} pairs. Seven different pairs is a closed-only yaku worth two han.", ClosedOnly: true));
         if (triplets + pairs >= 4 && melds.All(m => !m.IsSequence))
             paths.Add(new YakuPath("Toitoi (All Triplets)", triplets >= 2 ? YakuOutlook.Likely : YakuOutlook.Possible,
                 "Lots of pairs and triplets. Calling pon to build four triplets is worth two han."));
 
+        paths.AddRange(YakumanAdvisor.Suggest(hand, melds));
         return paths;
     }
 
@@ -107,7 +117,9 @@ public static class YakuAdvisor
     public static bool IsOpenWithoutYaku(IReadOnlyList<OpenMeld> melds, List<YakuPath> paths)
     {
         if (melds.All(m => m.IsConcealedKan)) return false;
-        return !paths.Any(p => p.Name.StartsWith("Yakuhai") || p.Name.StartsWith("Tanyao") || p.Name.StartsWith("Honitsu") ||
-                               p.Name.StartsWith("Chinitsu") || p.Name.StartsWith("Toitoi"));
+        return !paths.Any(WorksOpen);
     }
+
+    /// <summary>True for the yaku this advisor suggests that still count once the hand is open.</summary>
+    public static bool WorksOpen(YakuPath p) => !p.ClosedOnly;
 }

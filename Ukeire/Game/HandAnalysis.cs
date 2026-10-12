@@ -6,6 +6,12 @@ namespace Ukeire.Game;
 
 public sealed record ThreatReading(int Seat, IReadOnlyList<SafetyReading> Tiles);
 
+/// <summary>
+/// An opponent one called set away from Big Three Dragons or Big Four Winds. Under the liability rule, whoever
+/// discards the last tile and lets them pon it pays for the yakuman.
+/// </summary>
+public sealed record Liability(int Seat, int Kind, string Yakuman);
+
 /// <summary>Everything computed for one snapshot. Built on a worker thread, read by the UI.</summary>
 public sealed class HandAnalysis
 {
@@ -23,6 +29,15 @@ public sealed class HandAnalysis
     public required List<YakuPath> YakuPaths { get; init; }
     public required bool OpenWithoutYaku { get; init; }
     public required List<ThreatReading> Threats { get; init; }
+
+    /// <summary>Chi, pon and kan the player could make from this snapshot, each weighed up. Empty when there are none.</summary>
+    public IReadOnlyList<CallAdvice> Calls { get; init; } = [];
+
+    /// <summary>Liability tiles the player is holding right now.</summary>
+    public IReadOnlyList<Liability> Liabilities { get; init; } = [];
+
+    /// <summary>Waits that are already in the player's own discard pile. Empty unless tenpai off-turn.</summary>
+    public IReadOnlyList<int> FuritenWaits { get; init; } = [];
 
     public static HandAnalysis Build(TableSnapshot snap, TableContext ctx)
     {
@@ -53,6 +68,33 @@ public sealed class HandAnalysis
             threats.Add(new ThreatReading(seat, Safety.ReadHand(snap.Hand, snap.DiscardCounts(seat), seen)));
         }
 
+        var furiten = new List<int>();
+        if (shanten.IsTenpai && accepts != null)
+        {
+            var own = snap.DiscardCounts(snap.LocalSeat);
+            furiten.AddRange(accepts.Where(w => own[w.Kind] > 0).Select(w => w.Kind));
+        }
+
+        var liabilities = new List<Liability>();
+        for (var seat = 0; seat < 4; seat++)
+        {
+            if (seat == snap.LocalSeat) continue;
+            var setKinds = snap.Melds[seat].Where(m => !m.IsSequence).Select(m => m.Kind).ToHashSet();
+            // Only while a pon is still possible: they need a pair, so at most two copies can be visible.
+            void Check(int from, int count, int needed, string yakuman)
+            {
+                var held = Enumerable.Range(from, count).Count(setKinds.Contains);
+                if (held != needed) return;
+                foreach (var k in Enumerable.Range(from, count).Where(k => !setKinds.Contains(k) && snap.Hand[k] > 0 && seen[k] <= 2))
+                    liabilities.Add(new Liability(seat, k, yakuman));
+            }
+            Check(Tiles.White, 3, 2, "Big Three Dragons");
+            Check(Tiles.East, 4, 3, "Big Four Winds");
+        }
+
+        var threatSeats = threats.Select(t => t.Seat).ToList();
+        var calls = CallAdvisor.Options(snap).Select(o => CallAdvisor.Assess(snap, o, ctx, visible, threatSeats)).ToList();
+
         return new HandAnalysis
         {
             Snapshot = snap,
@@ -64,6 +106,9 @@ public sealed class HandAnalysis
             YakuPaths = yaku,
             OpenWithoutYaku = YakuAdvisor.IsOpenWithoutYaku(snap.MyMelds, yaku),
             Threats = threats,
+            FuritenWaits = furiten,
+            Calls = calls,
+            Liabilities = liabilities,
         };
     }
 
