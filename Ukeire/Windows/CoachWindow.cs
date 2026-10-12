@@ -198,6 +198,11 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextColored(TileWidgets.Bad, $"Furiten: {Tiles.Join(a.FuritenWaits)} is in your own discards. You can't win on another player's discard.");
             ExplainButton("furiten");
         }
+        foreach (var l in a.Liabilities)
+        {
+            ImGui.TextColored(TileWidgets.Bad, $"{SeatName(a.Snapshot, l.Seat)} is one set from {l.Yakuman}. If you discard {Tiles.Name(l.Kind)} and they pon it, you pay for the whole yakuman.");
+            ExplainButton("doman");
+        }
         if (a.OpenWithoutYaku)
         {
             ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands.");
@@ -318,6 +323,8 @@ public class CoachWindow : Window, IDisposable
     {
         ImGui.TextUnformatted($"{Tiles.Name(snap.RoundWind)} round, hand {snap.Dealer + 1}  ·  You are {Tiles.Name(snap.SeatWind)}");
         ImGui.TextUnformatted($"Honba: {snap.Honba}  Riichi sticks: {snap.RiichiSticks}  Tiles left in the wall: {snap.WallTilesRemaining}");
+        ImGui.TextUnformatted($"You're in {Ordinal(snap.Placement)} place.");
+        TileWidgets.HelpMarker("Doman Mahjong has no uma or oka: your rating only depends on where you finish, not how many points you finish with.");
 
         ImGui.TextUnformatted("Dora indicators:");
         for (var i = 0; i < snap.DoraIndicators.Count; i++)
@@ -362,6 +369,13 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextColored(TileWidgets.Muted, "nobody");
         }
         ImGui.Separator();
+
+        if (a != null && a.Liabilities.Count > 0)
+        {
+            foreach (var l in a.Liabilities)
+                ImGui.TextColored(TileWidgets.Bad, $"Liability: {SeatName(snap, l.Seat)} needs one more set for {l.Yakuman}. Hold on to your {Tiles.Name(l.Kind)}: if they pon it from you, you pay the full yakuman.");
+            ImGui.Separator();
+        }
 
         if (a == null || a.Threats.Count == 0)
         {
@@ -496,7 +510,8 @@ public class CoachWindow : Window, IDisposable
         if (finished.Count > 0)
         {
             ImGui.SameLine();
-            ImGui.TextUnformatted($"| Average placement: {finished.Average(g => g.Placement):0.00}  | 1st: {finished.Count(g => g.Placement == 1)}");
+            ImGui.TextUnformatted($"| Average placement: {finished.Average(g => g.Placement):0.00}  | 1st/2nd/3rd/4th: {string.Join("/", Enumerable.Range(1, 4).Select(p => finished.Count(g => g.Placement == p)))}");
+            TileWidgets.HelpMarker("Doman Mahjong's rating only counts placement, so this matters more than your points.");
         }
         ImGui.TextUnformatted($"Sound discards: {Percent(reviews.Where(r => !r.IsCall))}  | Sound calls: {Percent(reviews.Where(r => r.IsCall))}");
         var hands = games.SelectMany(g => g.Hands).ToList();

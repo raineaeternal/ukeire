@@ -63,10 +63,21 @@ public static class Lessons
          "Middle tiles 4-6 need both sides (1 and 7 for a 4) to be suji. " +
          "Kabe (wall): if all four 7s are visible, nobody can be waiting two-sided on 8 or 9 using 7s. " +
          "Suji and kabe don't protect against gap, edge, pair or single-tile waits."),
+        new("doman", "Doman Mahjong's rules",
+         "Doman Mahjong is Riichi Mahjong with a few differences. " +
+         "Rating: there's no uma or oka, so your rating only depends on whether you finish 1st, 2nd, 3rd or 4th. A big lead is worth no more than a small one. " +
+         "Aborted hands: four players discarding the same wind on the first turn, or four kans by different players, don't end the hand; play continues. " +
+         "(You can still abort with nine or more different terminals and honors on your first draw.) " +
+         "Nagashi mangan (discarding only terminals and honors all hand, none of them called) counts as a kind of draw rather than a win: " +
+         "the dealer keeps the seat if they're tenpai, and riichi sticks stay on the table. " +
+         "Liability: if a player has two dragon sets (or three wind sets) and you discard the last one for them to pon, you pay for their whole yakuman. " +
+         "Draws: when the wall runs out, players who aren't tenpai pay those who are."),
         new("pushfold", "Push or fold",
          "When someone declares riichi, ask: am I tenpai or 1-shanten with a good hand? If yes, pushing can be right. " +
          "If you're 2+ shanten or the hand is cheap, fold. Discard your safest tiles and give up on winning this hand. " +
-         "Not dealing in is worth more than a slow hand."),
+         "Not dealing in is worth more than a slow hand. " +
+         "In Doman Mahjong only your final placement counts, so late in the game weigh what a hand does to your place: " +
+         "in 1st you can afford to fold, and in 4th a cheap win may not be enough to move you up."),
         new("dora", "Dora, aka dora and ura dora",
          "There are three kinds of dora, and every copy is worth 1 han. " +
          "Dora: the indicator shows the tile before the dora. An indicator of 3m makes 4m dora, 9 wraps to 1, " +
@@ -91,7 +102,13 @@ public static class Lessons
     {
         var list = new List<Spotlight>();
         if (!snap.IsActive) return list;
-        void Add(string id, string why) => list.Add(new Spotlight(Get(id), why));
+        // A lesson picked for two reasons shows once, with both reasons.
+        void Add(string id, string why)
+        {
+            var i = list.FindIndex(x => x.Lesson.Id == id);
+            if (i < 0) list.Add(new Spotlight(Get(id), why));
+            else list[i] = list[i] with { Why = $"{list[i].Why} {why}" };
+        }
 
         var current = a;
         var inRiichi = snap.Riichi[snap.LocalSeat];
@@ -102,6 +119,27 @@ public static class Lessons
 
         if (current?.YakuPaths.Where(y => y.Yakuman).MinBy(y => y.Outlook) is { } yakuman)
             Add("yakuman", $"Your hand could be heading for {yakuman.Name} ({yakuman.Outlook}). It's a long shot: keep an eye on it, but don't force it.");
+
+        if (current is { Liabilities.Count: > 0 } liable)
+        {
+            var l = liable.Liabilities[0];
+            Add("doman", $"{RelativeSeat(snap, l.Seat)} is one set from {l.Yakuman} and you hold {Tiles.Name(l.Kind)}. Feeding them that pon makes you pay for the yakuman.");
+        }
+
+        if (snap.RoundWind != Tiles.East)
+        {
+            var mine = snap.Points[snap.LocalSeat];
+            var above = Enumerable.Range(0, 4).Where(s => s != snap.LocalSeat && snap.Points[s] > mine).Select(s => snap.Points[s] - mine).DefaultIfEmpty(0).Min();
+            var below = Enumerable.Range(0, 4).Where(s => s != snap.LocalSeat && snap.Points[s] <= mine).Select(s => mine - snap.Points[s]).DefaultIfEmpty(0).Min();
+            var place = snap.Placement;
+            var gaps = (place, above, below) switch
+            {
+                (1, _, _) => $"You're 1st, {below:N0} ahead of 2nd.",
+                (4, _, _) => $"You're 4th, {above:N0} behind 3rd.",
+                _ => $"You're {place switch { 2 => "2nd", _ => "3rd" }}: {above:N0} behind the player above you and {below:N0} ahead of the one below.",
+            };
+            Add("doman", $"{gaps} Your rating only counts placement, so play for your place, not your score.");
+        }
 
         if (current is { OpenWithoutYaku: true })
             Add("yaku", "Your hand is open and no yaku is in reach. As it stands it can't win.");

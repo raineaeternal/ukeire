@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ukeire.Mahjong;
 
 namespace Ukeire.Game;
@@ -94,6 +95,9 @@ public sealed record TableSnapshot
             visible[k] = Math.Clamp(visible[k], 0, 4 - Hand[k]);
         return visible;
     }
+
+    /// <summary>The player's current placement, 1 to 4. Tied players share the better placement.</summary>
+    public int Placement => 1 + Enumerable.Range(0, 4).Count(seat => seat != LocalSeat && Points[seat] > Points[LocalSeat]);
 
     public int AllMeldTiles
     {

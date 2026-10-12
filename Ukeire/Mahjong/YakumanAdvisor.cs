@@ -56,9 +56,9 @@ public static class YakumanAdvisor
             {
                 < 0 => Yakuman("Kokushi Musou (Thirteen Orphans)", YakuOutlook.Secured, "Your hand is a complete Thirteen Orphans!"),
                 0 => Yakuman("Kokushi Musou (Thirteen Orphans)", YakuOutlook.Likely,
-                    $"You're tenpai for Thirteen Orphans.{(thirteenSided ? " With all 13 kinds held you're waiting on any of them: the 13-sided wait, counted as a double yakuman in some rule sets." : "")}"),
+                    $"You're tenpai for Thirteen Orphans.{(thirteenSided ? " With all 13 kinds held you're waiting on any of them: the 13-sided wait, which Doman Mahjong lists as its own yakuman." : "")}"),
                 <= 2 => Yakuman("Kokushi Musou (Thirteen Orphans)", YakuOutlook.Possible,
-                    $"You hold {kinds} of the 13 terminal and honor kinds. One of each plus a pair wins, but every missing kind needs exactly the right draw."),
+                    $"You hold {kinds} of the 13 terminal and honor kinds. One of each plus a pair wins, but every missing kind needs exactly the right draw. (With nine or more kinds on your first draw, the game also lets you abort the hand instead.)"),
                 _ => null,
             };
             if (path != null) paths.Add(path with { ClosedOnly = true });
@@ -70,7 +70,7 @@ public static class YakumanAdvisor
         var daisangen = (dragonSets, dragonPairs) switch
         {
             (3, _) => Yakuman("Daisangen (Big Three Dragons)", YakuOutlook.Secured, "You have sets of all three dragons. Finish the hand and it's a yakuman."),
-            (2, 1) => Yakuman("Daisangen (Big Three Dragons)", YakuOutlook.Likely, "Two dragon sets and a pair of the third. Every opponent will see it coming once the second pon is down, so expect them to hold the last dragon."),
+            (2, 1) => Yakuman("Daisangen (Big Three Dragons)", YakuOutlook.Likely, "Two dragon sets and a pair of the third. Every opponent will see it coming once the second pon is down, so expect them to hold the last dragon: whoever lets you pon it has to pay for the yakuman (the liability rule)."),
             (2, 0) or (1, 2) => Yakuman("Daisangen (Big Three Dragons)", YakuOutlook.Possible, "You're building toward sets of all three dragons. Little Three Dragons (two sets and a pair) is the more common outcome."),
             _ => null,
         };
@@ -102,7 +102,7 @@ public static class YakumanAdvisor
         var winds = (windSets, windPairs) switch
         {
             (4, _) => Yakuman("Daisuushii (Big Four Winds)", YakuOutlook.Secured, "Sets of all four winds. Any pair finishes a yakuman."),
-            (3, >= 1) => Yakuman("Shousuushii (Little Four Winds)", YakuOutlook.Likely, "Three wind sets and a pair of the fourth wind is already Little Four Winds once the hand completes. A fourth set would make it Big Four Winds."),
+            (3, >= 1) => Yakuman("Shousuushii (Little Four Winds)", YakuOutlook.Likely, "Three wind sets and a pair of the fourth wind is already Little Four Winds once the hand completes. A fourth set would make it Big Four Winds, and whoever lets you pon that wind has to pay for it (the liability rule)."),
             (3, 0) or (2, >= 2) => Yakuman("Shousuushii (Little Four Winds)", YakuOutlook.Possible, "You're collecting winds: three sets and a pair of the fourth makes Little Four Winds."),
             _ => null,
         };
@@ -130,7 +130,7 @@ public static class YakumanAdvisor
                 var path = (missing, outside, pure) switch
                 {
                     (_, _, true) => Yakuman(name, YakuOutlook.Likely,
-                        "You're holding 1112345678999: True Nine Gates, waiting on any of the nine tiles in the suit. This is about the rarest hand in the game. Most players never see one."),
+                        "You're holding 1112345678999: True Nine Gates, waiting on any of the nine tiles in the suit. Doman Mahjong lists it as its own yakuman, and it's about the rarest hand in the game. Most players never see one."),
                     (0, 0, _) => Yakuman(name, YakuOutlook.Likely,
                         "You have the 1112345678999 shape in one suit. Nine Gates is one of the rarest yakuman, and the true nine-sided wait is rarer still."),
                     (<= 2, _, _) => Yakuman(name, YakuOutlook.Possible,
@@ -147,7 +147,7 @@ public static class YakumanAdvisor
         {
             4 => Yakuman("Suukantsu (Four Quads)", YakuOutlook.Likely, "Four kans! You only need the pair. This is the rarest yakuman of all."),
             >= 2 => Yakuman("Suukantsu (Four Quads)", YakuOutlook.Possible,
-                $"{kans} kans so far. Four Quads is the rarest yakuman of all: it needs all four copies of four different tiles, and the game is usually drawn if two players make four kans between them. Treat this as a curiosity, not a plan."),
+                $"{kans} kans so far. Four Quads is the rarest yakuman of all: it needs all four copies of four different tiles. (Doman Mahjong doesn't abort the hand when four kans are made, so other players' kans don't end it, but they do use up the kans you'd need.) Treat this as a curiosity, not a plan."),
             _ => null,
         };
         if (suukantsu != null) paths.Add(suukantsu);
