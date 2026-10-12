@@ -24,6 +24,9 @@ public sealed class HandAnalysis
     public required bool OpenWithoutYaku { get; init; }
     public required List<ThreatReading> Threats { get; init; }
 
+    /// <summary>Chi, pon and kan the player could make from this snapshot, each weighed up. Empty when there are none.</summary>
+    public IReadOnlyList<CallAdvice> Calls { get; init; } = [];
+
     /// <summary>Waits that are already in the player's own discard pile. Empty unless tenpai off-turn.</summary>
     public IReadOnlyList<int> FuritenWaits { get; init; } = [];
 
@@ -63,6 +66,9 @@ public sealed class HandAnalysis
             furiten.AddRange(accepts.Where(w => own[w.Kind] > 0).Select(w => w.Kind));
         }
 
+        var threatSeats = threats.Select(t => t.Seat).ToList();
+        var calls = CallAdvisor.Options(snap).Select(o => CallAdvisor.Assess(snap, o, ctx, visible, threatSeats)).ToList();
+
         return new HandAnalysis
         {
             Snapshot = snap,
@@ -75,6 +81,7 @@ public sealed class HandAnalysis
             OpenWithoutYaku = YakuAdvisor.IsOpenWithoutYaku(snap.MyMelds, yaku),
             Threats = threats,
             FuritenWaits = furiten,
+            Calls = calls,
         };
     }
 

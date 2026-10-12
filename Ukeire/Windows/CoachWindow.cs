@@ -80,11 +80,13 @@ public class CoachWindow : Window, IDisposable
         ImGui.Separator();
         if (a == null || a.Snapshot.Fingerprint() != snap.Fingerprint())
         {
+            if (Config.ExplainCalls && Coach.CallWindowOpen) ImGui.TextColored(TileWidgets.Warn, "Checking whether you can call...");
             ImGui.TextColored(TileWidgets.Muted, "Analyzing...");
             DrawContext(snap);
             return;
         }
 
+        if (Config.ExplainCalls) DrawCalls(a);
         if (Config.ShowShanten) DrawStatus(a);
         DrawWarnings(a);
 
@@ -94,6 +96,51 @@ public class CoachWindow : Window, IDisposable
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("Yaku you can aim for", ImGuiTreeNodeFlags.DefaultOpen)) DrawYaku(a);
         if (ImGui.CollapsingHeader("Round info")) DrawContext(snap);
+    }
+
+    private void DrawCalls(HandAnalysis a)
+    {
+        var calls = a.Calls.Where(c => !c.Option.OnDiscard || Coach.CallWindowOpen).ToList();
+        if (calls.Count == 0) return;
+
+        var snap = a.Snapshot;
+        var header = calls[0].Option.OnDiscard
+            ? $"Call chance: {SeatName(snap, snap.LastDiscardSeat)} discarded {Tiles.Name(snap.LastDiscardKind)}"
+            : "You can declare a kan this turn";
+        ImGui.TextColored(TileWidgets.Warn, header);
+        TileWidgets.HelpMarker("Worked out from your hand and the visible tiles only. Passing is always an option: you don't have to call.");
+        ExplainButton("calling");
+
+        for (var i = 0; i < calls.Count; i++)
+        {
+            var c = calls[i];
+            using var id = ImRaii.PushId($"call{i}");
+            using (ImRaii.Group()) TileWidgets.Row(c.Option.Meld.Kinds, "m");
+            ImGui.SameLine();
+            using (ImRaii.Group())
+            {
+                var color = c.Risk switch
+                {
+                    CallRisk.Low => TileWidgets.Good,
+                    CallRisk.Medium => TileWidgets.Warn,
+                    _ => TileWidgets.Bad,
+                };
+                ImGui.TextUnformatted(c.Option.Name);
+                ImGui.SameLine();
+                ImGui.TextColored(color, $"{c.Risk} risk");
+                ImGui.TextWrapped(c.Summary);
+            }
+            using (ImRaii.PushIndent())
+            {
+                foreach (var pro in c.Pros)
+                    using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Good))
+                        ImGui.TextWrapped($"+ {pro}");
+                foreach (var con in c.Cons)
+                    using (ImRaii.PushColor(ImGuiCol.Text, TileWidgets.Bad))
+                        ImGui.TextWrapped($"- {con}");
+            }
+        }
+        ImGui.Separator();
     }
 
     private void DrawStatus(HandAnalysis a)
@@ -451,6 +498,7 @@ public class CoachWindow : Window, IDisposable
         ImGui.TextUnformatted($"Hand: {Tiles.Notation(snap.Hand)}  Drawn: {(snap.DrawnTile >= 0 ? Tiles.Short(snap.DrawnTile) : "-")}");
         ImGui.TextUnformatted($"Player.HandTileCount: {snap.RawHandTileCount}  HandTiles: {string.Join(" ", snap.RawHandTiles.Select(t => t.ToString("X")))}");
         ImGui.TextUnformatted($"Table.DrawnTile  Seat: {snap.RawDrawnTile.Seat}  Tile: {snap.RawDrawnTile.Tile:X}  Flags: {snap.RawDrawnTile.Flags:X}");
+        ImGui.TextUnformatted($"Table.LastDiscard  Seat: {snap.RawLastDiscard.Seat}  Tile: {snap.RawLastDiscard.Tile:X}  Flags: {snap.RawLastDiscard.Flags:X}  Call window open: {Coach.CallWindowOpen}  Wall: {snap.WallTilesRemaining}");
         for (var seat = 0; seat < 4; seat++)
         {
             if (!ImGui.TreeNode($"Seat {seat} ({SeatName(snap, seat)})##dbg{seat}")) continue;

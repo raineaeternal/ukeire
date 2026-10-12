@@ -64,6 +64,17 @@ public sealed class Coach : IDisposable
     private HandAnalysis? decision;
     private bool readFailed;
 
+    /// <summary>Identifies the moment after an opponent's discard. Any draw (the wall shrinks) or call ends it.</summary>
+    private readonly record struct CallWindow(int Discards, int Wall, int MeldTiles)
+    {
+        public static CallWindow Of(TableSnapshot snap) => new(snap.TotalDiscards, snap.WallTilesRemaining, snap.AllMeldTiles);
+    }
+
+    private CallWindow? callWindow;
+
+    /// <summary>True from an opponent's discard until the next draw or call: the only time chi, pon or open kan is possible.</summary>
+    public bool CallWindowOpen => callWindow != null;
+
     /// <summary>The table just before one of the player's melds appeared, kept until the hand catches up.</summary>
     private (TableSnapshot Before, DateTime Seen)? pendingCall;
 
@@ -135,6 +146,16 @@ public sealed class Coach : IDisposable
         if (snap.IsActive && previous.IsActive && MeldTileCount(snap) > MeldTileCount(previous))
             pendingCall ??= (previous, DateTime.Now);
         if (pendingCall != null) ResolveCall(snap);
+
+        var newOpponentDiscard = snap.IsActive && previous.IsActive && snap.TotalDiscards > previous.TotalDiscards &&
+                                 snap.LastDiscardSeat >= 0 && snap.LastDiscardSeat != snap.LocalSeat;
+        callWindow = (snap.IsActive, newOpponentDiscard, callWindow) switch
+        {
+            (false, _, _) => null,
+            (_, true, _) => CallWindow.Of(snap),
+            (_, _, { } open) when open != CallWindow.Of(snap) => null,
+            _ => callWindow,
+        };
 
         Snapshot = snap;
         previous = snap;
@@ -313,12 +334,7 @@ public sealed class Coach : IDisposable
         var shantenBefore = Mahjong.Shanten.Calculate(before.Hand, before.OpenMeldCount).Value;
         var shantenAfter = Mahjong.Shanten.Calculate(after.Hand, after.OpenMeldCount).Value;
         var gained = shantenBefore - shantenAfter;
-        var paths = YakuAdvisor.Suggest(after.Hand, after.MyMelds, ctx.RoundWind, ctx.SeatWind);
-        var noYaku = YakuAdvisor.IsOpenWithoutYaku(after.MyMelds, paths);
-        var plan = paths.Where(YakuAdvisor.WorksOpen).MinBy(p => p.Outlook);
-        var securedBefore = YakuAdvisor.Suggest(before.Hand, before.MyMelds, ctx.RoundWind, ctx.SeatWind)
-            .Where(p => p.Outlook == YakuOutlook.Secured).Select(p => p.Name).ToHashSet();
-        var newlySecured = paths.FirstOrDefault(p => p.Outlook == YakuOutlook.Secured && !securedBefore.Contains(p.Name));
+        var (noYaku, plan, newlySecured) = YakuAfterCall.Of(before, after.Hand, after.MyMelds, ctx);
         var opensHand = !meld.IsConcealedKan && before.MyMelds.All(m => m.IsConcealedKan);
         var threatened = Enumerable.Range(0, 4).Any(seat => seat != after.LocalSeat && ctx.IsThreat(seat));
 
@@ -351,12 +367,7 @@ public sealed class Coach : IDisposable
         return new ReviewEntry(DateTime.Now, ReviewKind.Call, Tiles.Notation(before.Hand), tile, meld.Kinds, verdict, message, [], HintTier.None);
     }
 
-    private static string ShantenText(int shanten) => shanten switch
-    {
-        < 0 => "a complete hand",
-        0 => "tenpai",
-        _ => $"{shanten}-shanten",
-    };
+    private static string ShantenText(int shanten) => CallAdvisor.ShantenText(shanten);
 
     private static string Describe(SafetyLevel? level) => level switch
     {

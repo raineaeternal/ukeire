@@ -33,6 +33,13 @@ public sealed class TableSnapshot
     public (uint Seat, uint Tile, uint Flags) RawDrawnTile { get; init; }
     public bool GameSaysCanRiichi { get; init; }
 
+    /// <summary>Seat and tile kind of the most recent discard (Table.LastDiscard), or -1.</summary>
+    public int LastDiscardSeat { get; init; } = -1;
+    public int LastDiscardKind { get; init; } = -1;
+
+    /// <summary>Table.LastDiscard as read, for the debug tab.</summary>
+    public (uint Seat, uint Tile, uint Flags) RawLastDiscard { get; init; }
+
     public int RoundWind { get; init; } = Tiles.East;
     public int SeatWind { get; init; } = Tiles.East;
     public int Dealer { get; init; }
@@ -88,6 +95,17 @@ public sealed class TableSnapshot
         return visible;
     }
 
+    public int AllMeldTiles
+    {
+        get
+        {
+            var n = 0;
+            foreach (var seatMelds in Melds)
+                foreach (var m in seatMelds) n += m.Kinds.Count;
+            return n;
+        }
+    }
+
     public int[] DiscardCounts(int seat)
     {
         var counts = new int[Tiles.KindCount];
@@ -103,6 +121,8 @@ public sealed class TableSnapshot
         hash.Add(LocalSeat);
         foreach (var c in Hand) hash.Add(c);
         hash.Add(DrawnTile);
+        hash.Add(LastDiscardSeat);
+        hash.Add(LastDiscardKind);
         foreach (var pile in Discards)
         {
             hash.Add(pile.Count);

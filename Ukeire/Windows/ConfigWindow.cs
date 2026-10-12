@@ -38,6 +38,8 @@ public class ConfigWindow : Window, IDisposable
                "Turn off to practise counting shanten yourself.");
         Toggle("Show defense ratings", configuration.ShowDefense, v => configuration.ShowDefense = v,
                "Turn off to practise reading suji and genbutsu yourself.");
+        Toggle("Explain call chances", configuration.ExplainCalls, v => configuration.ExplainCalls = v,
+               "When you could chi, pon or kan, show what the call would do to your hand and how risky it is.");
         Toggle("Open when a game starts", configuration.AutoOpen, v => configuration.AutoOpen = v, null);
     }
 

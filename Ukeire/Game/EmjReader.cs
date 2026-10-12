@@ -74,6 +74,12 @@ public static unsafe class EmjReader
 
         LogDrawChanges(mySeat, me.HandTileCount, rawHandTiles, drawnInfo.Seat, drawnInfo.Tile, drawnInfo.Flags);
 
+        // The most recent discard is public: it's the tile everyone can call.
+        ref var lastInfo = ref table->LastDiscard;
+        var lastKind = (int)(lastInfo.Tile & 0xFF);
+        var lastSeat = (int)lastInfo.Seat;
+        if (!Tiles.IsValid(lastKind) || lastSeat is < 0 or > 3) (lastKind, lastSeat) = (-1, -1);
+
         var melds = new List<OpenMeld>[4];
         var discards = new List<DiscardEntry>[4];
         var board = table->Board;
@@ -153,6 +159,9 @@ public static unsafe class EmjReader
             RawHandTileCount = me.HandTileCount,
             RawDrawnTile = (drawnInfo.Seat, drawnInfo.Tile, drawnInfo.Flags),
             GameSaysCanRiichi = me.CanRiichi,
+            LastDiscardSeat = lastSeat,
+            LastDiscardKind = lastKind,
+            RawLastDiscard = (lastInfo.Seat, lastInfo.Tile, lastInfo.Flags),
             RoundWind = roundWind,
             SeatWind = seatWind,
             Dealer = dealer,
