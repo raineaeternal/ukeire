@@ -48,7 +48,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the Doman" + "Mahjong tutor. \"/ukeire config\" opens the settings."
+            HelpMessage = "Open the Doman Mahjong tutor. \"/ukeire config\" opens the settings."
         });
 
         PluginInterface.UiBuilder.Draw += DrawUi;
