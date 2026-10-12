@@ -105,24 +105,24 @@ public class CoachWindow : Window, IDisposable
             HandForm.ThirteenOrphans => " via Thirteen Orphans",
             _ => string.Empty,
         };
-        if (s.IsComplete)
-            ImGui.TextColored(TileWidgets.Good, "Your hand is complete. You can win!");
-        else if (s.IsTenpai && a.Acceptances != null)
+        switch (s, a.Acceptances)
         {
-            ImGui.TextColored(TileWidgets.Good, $"Tenpai{formNote}. Waiting on {a.Acceptances.Sum(x => x.Remaining)} unseen tiles:");
-            TileWidgets.Row(a.Acceptances.Select(x => x.Kind), "wait");
-            if (a.Acceptances.All(x => x.Remaining == 0))
-                ImGui.TextColored(TileWidgets.Bad, "Every copy of your waits is already visible. This wait can't win.");
-        }
-        else
-        {
-            ImGui.TextUnformatted($"Shanten: {s.Value}{formNote}");
-            TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai).");
-            ExplainButton("shanten");
-            if (a.Acceptances is { Count: > 0 } acc)
-            {
-                ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
-            }
+            case ({ IsComplete: true }, _):
+                ImGui.TextColored(TileWidgets.Good, "Your hand is complete. You can win!");
+                break;
+            case ({ IsTenpai: true }, { } waits):
+                ImGui.TextColored(TileWidgets.Good, $"Tenpai{formNote}. Waiting on {waits.Sum(x => x.Remaining)} unseen tiles:");
+                TileWidgets.Row(waits.Select(x => x.Kind), "wait");
+                if (waits.All(x => x.Remaining == 0))
+                    ImGui.TextColored(TileWidgets.Bad, "Every copy of your waits is already visible. This wait can't win.");
+                break;
+            default:
+                ImGui.TextUnformatted($"Shanten: {s.Value}{formNote}");
+                TileWidgets.HelpMarker("How many more useful tiles you need before you're one tile from winning (tenpai).");
+                ExplainButton("shanten");
+                if (a.Acceptances is { Count: > 0 } acc)
+                    ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
+                break;
         }
     }
 
@@ -378,23 +378,23 @@ public class CoachWindow : Window, IDisposable
         jumpToLesson = null;
         var spotlights = Lessons.Relevant(snap, a, Coach.LastReview);
 
-        if (spotlights.Count > 0)
+        switch (spotlights.Count, snap.IsActive)
         {
-            ImGui.TextColored(TileWidgets.Good, "Right now at your table");
-            TileWidgets.HelpMarker("Lessons picked from your current hand, the round and your last discard. They never point at a specific discard; use the hints for that.");
-            foreach (var s in spotlights)
-                LessonHeader(s.Lesson, s.Why, jump, "now");
-            ImGui.Spacing();
-            ImGui.Separator();
-            ImGui.TextUnformatted("All lessons");
-        }
-        else if (snap.IsActive)
-        {
-            ImGui.TextColored(TileWidgets.Muted, "Nothing in particular stands out in this hand. Browse the basics below.");
-        }
-        else
-        {
-            ImGui.TextColored(TileWidgets.Muted, "At the table, lessons that apply to your hand will show up here.");
+            case (> 0, _):
+                ImGui.TextColored(TileWidgets.Good, "Right now at your table");
+                TileWidgets.HelpMarker("Lessons picked from your current hand, the round and your last discard. They never point at a specific discard; use the hints for that.");
+                foreach (var s in spotlights)
+                    LessonHeader(s.Lesson, s.Why, jump, "now");
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.TextUnformatted("All lessons");
+                break;
+            case (_, true):
+                ImGui.TextColored(TileWidgets.Muted, "Nothing in particular stands out in this hand. Browse the basics below.");
+                break;
+            default:
+                ImGui.TextColored(TileWidgets.Muted, "At the table, lessons that apply to your hand will show up here.");
+                break;
         }
 
         foreach (var lesson in Lessons.All)

@@ -93,22 +93,30 @@ public static class Lessons
             Add("defense", $"{who}'s own discards are 100% safe against them. Their pile is on the Defense tab.");
         }
 
-        if (inRiichi)
-            Add("riichi", "You're in riichi: every tile you draw that doesn't win must be discarded.");
-        else if (snap.IsDiscardTurn && snap.GameSaysCanRiichi)
-            Add("riichi", "The game is offering riichi this turn. Think about whether locking your hand is worth the extra han.");
-        else if (closed && !snap.IsDiscardTurn && current is { Shanten.IsTenpai: true })
-            Add("riichi", "Your hand is closed and tenpai, so riichi is an option from your next discard.");
-
-        if (current != null)
+        switch (inRiichi, snap.IsDiscardTurn)
         {
-            var s = current.Shanten;
-            if (s.IsComplete)
+            case (true, _):
+                Add("riichi", "You're in riichi: every tile you draw that doesn't win must be discarded.");
+                break;
+            case (false, true) when snap.GameSaysCanRiichi:
+                Add("riichi", "The game is offering riichi this turn. Think about whether locking your hand is worth the extra han.");
+                break;
+            case (false, false) when closed && current is { Shanten.IsTenpai: true }:
+                Add("riichi", "Your hand is closed and tenpai, so riichi is an option from your next discard.");
+                break;
+        }
+
+        switch (current?.Shanten, snap.IsDiscardTurn, current?.Acceptances)
+        {
+            case ({ IsComplete: true }, _, _):
                 Add("goal", "Your hand is complete: four groups and a pair (or a special hand).");
-            else if (s.IsTenpai && !snap.IsDiscardTurn && current.Acceptances is { } waits)
+                break;
+            case ({ IsTenpai: true }, false, { } waits):
                 Add("tenpai", $"You're tenpai, waiting on {Tiles.Join(waits.Select(w => w.Kind))} ({waits.Sum(w => w.Remaining)} unseen).");
-            else if (!snap.IsDiscardTurn && s.Value >= 1)
-                Add("shanten", $"You're {s.Value}-shanten: {s.Value} more useful draw{(s.Value == 1 ? "" : "s")} before tenpai.");
+                break;
+            case ({ Value: >= 1 and var n }, false, _):
+                Add("shanten", $"You're {n}-shanten: {n} more useful draw{(n == 1 ? "" : "s")} before tenpai.");
+                break;
         }
 
         if (last != null && DateTime.Now - last.Time < ReviewWindow)

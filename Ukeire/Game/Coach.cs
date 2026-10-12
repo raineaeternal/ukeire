@@ -97,14 +97,15 @@ public sealed class Coach : IDisposable
             snap = TableSnapshot.Inactive;
         }
 
-        if (snap.IsActive && previous.IsActive)
+        switch (snap.IsActive, previous.IsActive)
         {
-            if (snap.TotalDiscards < previous.TotalDiscards) OnNewHand();
-            else DetectOwnDiscard(previous, snap);
-        }
-        else if (snap.IsActive && !previous.IsActive)
-        {
-            OnNewHand();
+            case (true, false):
+            case (true, true) when snap.TotalDiscards < previous.TotalDiscards:
+                OnNewHand();
+                break;
+            case (true, true):
+                DetectOwnDiscard(previous, snap);
+                break;
         }
 
         Snapshot = snap;
@@ -190,44 +191,26 @@ public sealed class Coach : IDisposable
         var bestDanger = basis.DangerOf(best.Discard);
         var saferThanBest = chosenDanger.HasValue && bestDanger.HasValue && chosenDanger < bestDanger;
 
-        Verdict verdict;
-        string message;
         var cName = Tiles.Short(discard);
         var bName = Tiles.Short(best.Discard);
+        var lostStep = chosen.ShantenAfter.Value > best.ShantenAfter.Value;
+        var acceptPercent = best.UkeireTotal == 0 ? 100 : chosen.UkeireTotal * 100 / best.UkeireTotal;
 
-        if (chosen.ShantenAfter.Value > best.ShantenAfter.Value)
+        var (verdict, message) = (lostStep, saferThanBest, acceptPercent) switch
         {
-            if (saferThanBest)
-            {
-                verdict = Verdict.Defensive;
-                message = $"You gave up a step toward tenpai to play safe. {cName} is {Describe(chosenDanger)}, while {bName} is {Describe(bestDanger)}. Folding against riichi is often right with a slow hand.";
-            }
-            else
-            {
-                verdict = Verdict.Backward;
-                message = $"Discarding {cName} took you from {best.ShantenAfter.Value} to {chosen.ShantenAfter.Value} shanten. {bName} would have kept your progress ({best.UkeireTotal} tiles accepted). Check whether {cName} was part of a group or a needed shape.";
-            }
-        }
-        else if (chosen.UkeireTotal >= best.UkeireTotal)
-        {
-            verdict = Verdict.Best;
-            message = $"Top choice: {cName} keeps shanten {chosen.ShantenAfter.Value} with {chosen.UkeireTotal} tiles accepted ({Tiles.Join(chosen.Accepts.Select(a => a.Kind))}).";
-        }
-        else if (chosen.UkeireTotal * 100 >= best.UkeireTotal * 85)
-        {
-            verdict = Verdict.Good;
-            message = $"Close: {cName} accepts {chosen.UkeireTotal} tiles. {bName} accepts {best.UkeireTotal}. The difference: {Difference(best, chosen)}.";
-        }
-        else if (saferThanBest)
-        {
-            verdict = Verdict.Defensive;
-            message = $"Slower ({chosen.UkeireTotal} vs {best.UkeireTotal} tiles), but {cName} is {Describe(chosenDanger)} against riichi. A reasonable trade when the hand isn't worth much.";
-        }
-        else
-        {
-            verdict = Verdict.Slow;
-            message = $"Same shanten, but {cName} accepts only {chosen.UkeireTotal} tiles. {bName} accepts {best.UkeireTotal}. You lose: {Difference(best, chosen)}.";
-        }
+            (true, true, _) => (Verdict.Defensive,
+                $"You gave up a step toward tenpai to play safe. {cName} is {Describe(chosenDanger)}, while {bName} is {Describe(bestDanger)}. Folding against riichi is often right with a slow hand."),
+            (true, false, _) => (Verdict.Backward,
+                $"Discarding {cName} took you from {best.ShantenAfter.Value} to {chosen.ShantenAfter.Value} shanten. {bName} would have kept your progress ({best.UkeireTotal} tiles accepted). Check whether {cName} was part of a group or a needed shape."),
+            (_, _, >= 100) => (Verdict.Best,
+                $"Top choice: {cName} keeps shanten {chosen.ShantenAfter.Value} with {chosen.UkeireTotal} tiles accepted ({Tiles.Join(chosen.Accepts.Select(a => a.Kind))})."),
+            (_, _, >= 85) => (Verdict.Good,
+                $"Close: {cName} accepts {chosen.UkeireTotal} tiles. {bName} accepts {best.UkeireTotal}. The difference: {Difference(best, chosen)}."),
+            (_, true, _) => (Verdict.Defensive,
+                $"Slower ({chosen.UkeireTotal} vs {best.UkeireTotal} tiles), but {cName} is {Describe(chosenDanger)} against riichi. A reasonable trade when the hand isn't worth much."),
+            _ => (Verdict.Slow,
+                $"Same shanten, but {cName} accepts only {chosen.UkeireTotal} tiles. {bName} accepts {best.UkeireTotal}. You lose: {Difference(best, chosen)}."),
+        };
 
         return new ReviewEntry(DateTime.Now, hand, discard, verdict, message, top, hint);
     }

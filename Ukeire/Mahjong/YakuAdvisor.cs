@@ -45,12 +45,15 @@ public static class YakuAdvisor
             var valuable = Tiles.IsDragon(k) || k == roundWind || k == seatWind;
             if (!valuable) continue;
             var why = Tiles.IsDragon(k) ? "dragon" : (k == roundWind && k == seatWind) ? "round and seat wind (double value)" : k == roundWind ? "round wind" : "seat wind";
-            if (melds.Any(m => !m.IsSequence && m.Kind == k))
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Secured, $"You have a set of {Tiles.Name(k)}, a {why}. That's one han and a yaku."));
-            else if (hand[k] >= 3)
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Secured, $"A concealed triplet of {Tiles.Name(k)} ({why}) is already a yaku."));
-            else if (hand[k] == 2)
-                paths.Add(new YakuPath($"Yakuhai ({Tiles.Short(k)})", YakuOutlook.Likely, $"A pair of {Tiles.Name(k)} ({why}). Calling pon on the third copy gives you a yaku and lets you open your hand safely."));
+            var name = $"Yakuhai ({Tiles.Short(k)})";
+            var yakuhai = (called: melds.Any(m => !m.IsSequence && m.Kind == k), held: hand[k]) switch
+            {
+                (true, _) => new YakuPath(name, YakuOutlook.Secured, $"You have a set of {Tiles.Name(k)}, a {why}. That's one han and a yaku."),
+                (_, >= 3) => new YakuPath(name, YakuOutlook.Secured, $"A concealed triplet of {Tiles.Name(k)} ({why}) is already a yaku."),
+                (_, 2) => new YakuPath(name, YakuOutlook.Likely, $"A pair of {Tiles.Name(k)} ({why}). Calling pon on the third copy gives you a yaku and lets you open your hand safely."),
+                _ => null,
+            };
+            if (yakuhai != null) paths.Add(yakuhai);
         }
 
         // Tanyao: all simples.
@@ -78,12 +81,15 @@ public static class YakuAdvisor
         for (var s = 1; s < 3; s++)
             if (suitCount[s] > suitCount[mainSuit]) mainSuit = s;
         var offSuit = total - suitCount[mainSuit] - honors;
-        if (offSuit == 0 && honors == 0)
-            paths.Add(new YakuPath("Chinitsu (Full Flush)", YakuOutlook.Likely, $"Everything is {Tiles.SuitName(mainSuit)}. That's six han closed, five open."));
-        else if (offSuit == 0)
-            paths.Add(new YakuPath("Honitsu (Half Flush)", YakuOutlook.Likely, $"Only {Tiles.SuitName(mainSuit)} and honors. That's three han closed, two open."));
-        else if (offSuit <= 3 && suitCount[mainSuit] + honors >= 9)
-            paths.Add(new YakuPath("Honitsu (Half Flush)", YakuOutlook.Possible, $"{offSuit} tile(s) outside {Tiles.SuitName(mainSuit)} and honors. Dropping them would aim you at a half flush."));
+        var flush = (offSuit, honors) switch
+        {
+            (0, 0) => new YakuPath("Chinitsu (Full Flush)", YakuOutlook.Likely, $"Everything is {Tiles.SuitName(mainSuit)}. That's six han closed, five open."),
+            (0, _) => new YakuPath("Honitsu (Half Flush)", YakuOutlook.Likely, $"Only {Tiles.SuitName(mainSuit)} and honors. That's three han closed, two open."),
+            (<= 3, _) when suitCount[mainSuit] + honors >= 9 =>
+                new YakuPath("Honitsu (Half Flush)", YakuOutlook.Possible, $"{offSuit} tile(s) outside {Tiles.SuitName(mainSuit)} and honors. Dropping them would aim you at a half flush."),
+            _ => null,
+        };
+        if (flush != null) paths.Add(flush);
 
         // Pair-based hands.
         var pairs = 0;
