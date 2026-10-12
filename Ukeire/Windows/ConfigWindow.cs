@@ -8,6 +8,7 @@ namespace Ukeire.Windows;
 public class ConfigWindow : Window, IDisposable
 {
     private static readonly string[] TierNames = ["Off (reviews only)", "Nudges", "Nudges + pointers", "Everything (full numbers)"];
+    private static readonly string[] DesignNames = ["Match the game", "Traditional", "Doman Mahjong", "Alternate (unnamed set)"];
 
     private readonly Configuration configuration;
 
@@ -40,6 +41,15 @@ public class ConfigWindow : Window, IDisposable
                "Turn off to practise reading suji and genbutsu yourself.");
         Toggle("Explain call chances", configuration.ExplainCalls, v => configuration.ExplainCalls = v,
                "When you could chi, pon or kan, show what the call would do to your hand and how risky it is.");
+        var design = (int)configuration.TileDesign;
+        ImGui.SetNextItemWidth(220);
+        if (ImGui.Combo("Tile design", ref design, DesignNames, DesignNames.Length))
+        {
+            configuration.TileDesign = (TileDesign)design;
+            configuration.Save();
+        }
+        TileWidgets.HelpMarker("Tiles are drawn with the game's own icons. \"Match the game\" follows the tile design picked in Doman Mahjong's settings.");
+
         Toggle("Open when a game starts", configuration.AutoOpen, v => configuration.AutoOpen = v, null);
     }
 

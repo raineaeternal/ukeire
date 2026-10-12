@@ -33,6 +33,11 @@ public class CoachWindow : Window, IDisposable
 
     public void Dispose() { }
 
+    public override void PreDraw()
+    {
+        TileWidgets.Design = TileIcons.Resolve(Config.TileDesign);
+    }
+
     public override void Draw()
     {
         var snap = Coach.Snapshot;
@@ -493,6 +498,9 @@ public class CoachWindow : Window, IDisposable
     {
         ImGui.TextColored(TileWidgets.Muted, "Raw data read from the table. Useful for mapping unknown flags.");
         ImGui.TextUnformatted($"Status: {snap.Status}  Active: {snap.IsActive}  Local seat: {snap.LocalSeat}");
+        var emj = TileIcons.ReadGameSetting();
+        ImGui.TextUnformatted($"EmjSetting: {(emj is { } e ? $"{e.Value} (0b{Convert.ToString(e.Value, 2)}) in {e.Section}" : "unreadable")}  Tile design drawn: {TileWidgets.Design}");
+        TileWidgets.HelpMarker("Switch the tile design in the game's Doman Mahjong settings and watch which bit changes. That bit is what \"Match the game\" should read.");
         if (!snap.IsActive) return;
         ImGui.TextUnformatted($"Hand tiles: {snap.HandTileCount}  Melds: {snap.OpenMeldCount}  Discard turn: {snap.IsDiscardTurn}  Game says can riichi: {snap.GameSaysCanRiichi}");
         ImGui.TextUnformatted($"Hand: {Tiles.Notation(snap.Hand)}  Drawn: {(snap.DrawnTile >= 0 ? Tiles.Short(snap.DrawnTile) : "-")}");

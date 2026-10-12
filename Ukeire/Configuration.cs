@@ -1,5 +1,6 @@
 using Dalamud.Configuration;
 using System;
+using Ukeire.Windows;
 
 namespace Ukeire;
 
@@ -25,6 +26,9 @@ public class Configuration : IPluginConfiguration
 
     /// <summary>Open the tutor window automatically when a Mahjong game starts.</summary>
     public bool AutoOpen { get; set; } = true;
+
+    /// <summary>Which of the game's tile icon sets to draw. FollowGame matches the design picked in the game's Mahjong settings.</summary>
+    public TileDesign TileDesign { get; set; } = TileDesign.FollowGame;
 
     public int ReviewHistoryLimit { get; set; } = 200;
 
