@@ -27,6 +27,9 @@ public sealed class HandAnalysis
     public IReadOnlyList<Acceptance>? Acceptances { get; init; }
 
     public required List<YakuPath> YakuPaths { get; init; }
+
+    /// <summary>When tenpai off-turn, the exact yaku and han each winning tile would give. Empty otherwise.</summary>
+    public IReadOnlyList<WaitReading> WaitReadings { get; init; } = [];
     public required bool OpenWithoutYaku { get; init; }
     public required List<ThreatReading> Threats { get; init; }
 
@@ -58,6 +61,10 @@ public sealed class HandAnalysis
         }
 
         var yaku = YakuAdvisor.Suggest(snap.Hand, snap.MyMelds, ctx.RoundWind, ctx.SeatWind);
+
+        var readings = shanten.IsTenpai && !snap.IsDiscardTurn
+            ? WinEvaluator.Waits(snap.Hand, snap.MyMelds, ctx.RoundWind, ctx.SeatWind, visible)
+            : [];
 
         var seen = new int[Tiles.KindCount];
         for (var k = 0; k < Tiles.KindCount; k++) seen[k] = visible[k] + snap.Hand[k];
@@ -104,7 +111,11 @@ public sealed class HandAnalysis
             Discards = discards,
             Acceptances = accepts,
             YakuPaths = yaku,
-            OpenWithoutYaku = YakuAdvisor.IsOpenWithoutYaku(snap.MyMelds, yaku),
+            WaitReadings = readings,
+            // Once tenpai the exact reading replaces the shape-based guess.
+            OpenWithoutYaku = readings.Count > 0
+                ? !snap.MyMelds.All(m => m.IsConcealedKan) && !readings.Any(w => w.CanWin)
+                : YakuAdvisor.IsOpenWithoutYaku(snap.MyMelds, yaku),
             Threats = threats,
             FuritenWaits = furiten,
             Calls = calls,

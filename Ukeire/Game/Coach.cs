@@ -151,6 +151,14 @@ public sealed class Coach : IDisposable
             snap = TableSnapshot.Inactive;
         }
 
+        // The reader hands back the same instance while the table is unchanged, so there is nothing to recompute.
+        // Only a pending call review needs the clock to run out.
+        if (snap.IsActive && ReferenceEquals(snap, previous))
+        {
+            if (pendingCall != null) ResolveCall(snap);
+            return;
+        }
+
         switch (snap.IsActive, previous.IsActive)
         {
             case (true, false):
@@ -377,7 +385,7 @@ public sealed class Coach : IDisposable
         var shantenBefore = Mahjong.Shanten.Calculate(before.Hand, before.OpenMeldCount).Value;
         var shantenAfter = Mahjong.Shanten.Calculate(after.Hand, after.OpenMeldCount).Value;
         var gained = shantenBefore - shantenAfter;
-        var (noYaku, plan, newlySecured) = YakuAfterCall.Of(before, after.Hand, after.MyMelds, ctx);
+        var (noYaku, plan, newlySecured, _) = YakuAfterCall.Of(before, after.Hand, after.MyMelds, ctx, after.VisibleOutsideHand(ctx.DoraIndicators), []);
         var opensHand = !meld.IsConcealedKan && before.MyMelds.All(m => m.IsConcealedKan);
         var threatened = Enumerable.Range(0, 4).Any(seat => seat != after.LocalSeat && ctx.IsThreat(seat));
 

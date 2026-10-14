@@ -42,18 +42,55 @@ public sealed record CallOption(CallType Type, int Tile, OpenMeld Meld, int[] Ha
 
 public sealed record CallAdvice(CallOption Option, CallRisk Risk, string Summary, IReadOnlyList<string> Pros, IReadOnlyList<string> Cons);
 
-/// <summary>What the yaku picture looks like once a call is made.</summary>
-public sealed record YakuAfterCall(bool NoYaku, YakuPath? Plan, YakuPath? NewlySecured)
+/// <summary>
+/// What the yaku picture looks like once a call is made.
+/// <paramref name="Tenpai"/> holds the exact reading of the best tenpai the call can reach, or null when it can't reach one yet.
+/// </summary>
+public sealed record YakuAfterCall(bool NoYaku, YakuPath? Plan, YakuPath? NewlySecured, IReadOnlyList<WaitReading>? Tenpai)
 {
-    public static YakuAfterCall Of(TableSnapshot before, ReadOnlySpan<int> handAfter, IReadOnlyList<OpenMeld> meldsAfter, TableContext ctx)
+    public static YakuAfterCall Of(TableSnapshot before, ReadOnlySpan<int> handAfter, IReadOnlyList<OpenMeld> meldsAfter, TableContext ctx, int[] visible, IReadOnlyList<int> forbidden)
     {
         var paths = YakuAdvisor.Suggest(handAfter, meldsAfter, ctx.RoundWind, ctx.SeatWind);
         var securedBefore = YakuAdvisor.Suggest(before.Hand, before.MyMelds, ctx.RoundWind, ctx.SeatWind)
             .Where(p => p.Outlook == YakuOutlook.Secured).Select(p => p.Name).ToHashSet();
+        var noYaku = YakuAdvisor.IsOpenWithoutYaku(meldsAfter, paths);
+        var tenpai = BestTenpai(handAfter.ToArray(), meldsAfter, ctx, visible, forbidden);
+        // The exact reading beats the shape-based guess whenever the call can reach tenpai.
+        if (tenpai != null && !meldsAfter.All(m => m.IsConcealedKan)) noYaku = !tenpai.Any(w => w.CanWin);
         return new YakuAfterCall(
-            YakuAdvisor.IsOpenWithoutYaku(meldsAfter, paths),
+            noYaku,
             paths.Where(YakuAdvisor.WorksOpen).MinBy(p => p.Outlook),
-            paths.FirstOrDefault(p => p.Outlook == YakuOutlook.Secured && !securedBefore.Contains(p.Name)));
+            paths.FirstOrDefault(p => p.Outlook == YakuOutlook.Secured && !securedBefore.Contains(p.Name)),
+            tenpai);
+    }
+
+    /// <summary>The waits of the most valuable tenpai the hand can reach (after an allowed discard if it must discard), or null.</summary>
+    private static List<WaitReading>? BestTenpai(int[] hand, IReadOnlyList<OpenMeld> melds, TableContext ctx, int[] visible, IReadOnlyList<int> forbidden)
+    {
+        List<WaitReading> Read(int[] h) => WinEvaluator.Waits(h, melds, ctx.RoundWind, ctx.SeatWind, visible);
+        if ((Tiles.Total(hand) + (3 * melds.Count)) % 3 != 2)
+            return Shanten.Calculate(hand, melds.Count).IsTenpai ? Read(hand) : null;
+
+        List<WaitReading>? best = null;
+        var bestScore = (0, 0);
+        for (var d = 0; d < Tiles.KindCount; d++)
+        {
+            if (hand[d] == 0 || forbidden.Contains(d)) continue;
+            hand[d]--;
+            if (Shanten.Calculate(hand, melds.Count).IsTenpai)
+            {
+                var waits = Read(hand);
+                var winning = waits.Where(w => w.CanWin).ToList();
+                var score = (winning.Sum(w => w.Remaining), winning.Count == 0 ? 0 : winning.Max(w => Math.Max(w.Ron.Han, w.Tsumo.Han)));
+                if (best == null || score.CompareTo(bestScore) > 0)
+                {
+                    best = waits;
+                    bestScore = score;
+                }
+            }
+            hand[d]++;
+        }
+        return best;
     }
 }
 
@@ -136,7 +173,7 @@ public static class CallAdvisor
         var (shantenBefore, ukeireBefore) = Speed(snap.Hand, melds, visible, []);
         var (shantenAfter, ukeireAfter) = Speed(option.HandAfter, meldsAfter.Count, visible, option.Forbidden);
         var gained = shantenBefore - shantenAfter;
-        var yaku = YakuAfterCall.Of(snap, option.HandAfter, meldsAfter, ctx);
+        var yaku = YakuAfterCall.Of(snap, option.HandAfter, meldsAfter, ctx, visible, option.Forbidden);
         var opensHand = !option.Meld.IsConcealedKan && snap.MyMelds.All(m => m.IsConcealedKan);
         var threatened = threatSeats.Count > 0;
         var who = string.Join(" and ", threatSeats.Select(s => RelativeSeat(snap, s)));
@@ -154,6 +191,12 @@ public static class CallAdvisor
         if (option.OnDiscard && dora.Contains(option.Tile)) pros.Add($"{Tiles.Short(option.Tile)} is a dora, so taking it adds a han.");
         if (option.IsKan) pros.Add("You get a replacement draw, and the new dora indicator might land on your tiles.");
         if (option.Type == CallType.ClosedKan) pros.Add("Your hand stays closed, so riichi is still available.");
+
+        if (yaku.Tenpai is { } reach && reach.Where(w => w.CanWin).MaxBy(w => Math.Max(w.Ron.Han, w.Tsumo.Han)) is { } top)
+        {
+            var reading = top.Ron.HasYaku ? top.Ron : top.Tsumo;
+            pros.Add($"It can reach tenpai: a win on {Tiles.Short(top.Kind)} would score {string.Join(", ", reading.Yaku.Select(y => $"{y.Name} {y.Han}"))}.");
+        }
 
         if (opensHand)
         {

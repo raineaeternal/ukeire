@@ -47,6 +47,11 @@ public static unsafe class EmjReader
         var mySeat = (int)me.Seat;
         if (mySeat is < 0 or > 3) return Waiting("Waiting for seats to be assigned.");
 
+        // The table changes a few times a minute but this runs every frame. Hash the raw values first, without
+        // allocating, and hand back the last snapshot untouched when nothing differs.
+        var signature = Signature(table, me, mySeat);
+        if (lastSnapshot != null && signature == lastSignature) return lastSnapshot;
+
         var hand = new int[Tiles.KindCount];
         var red = new int[Tiles.KindCount];
         var handTiles = me.HandTiles;
@@ -156,7 +161,7 @@ public static unsafe class EmjReader
             }
         }
 
-        return new TableSnapshot
+        var snapshot = new TableSnapshot
         {
             Status = "At the table.",
             LocalSeat = mySeat,
@@ -184,6 +189,68 @@ public static unsafe class EmjReader
             Melds = melds,
             Discards = discards,
         };
+        lastSignature = signature;
+        lastSnapshot = snapshot;
+        return snapshot;
+    }
+
+    private static ulong lastSignature;
+    private static TableSnapshot? lastSnapshot;
+
+    /// <summary>Forgets the cached snapshot, so the next read parses the table again.</summary>
+    public static void Invalidate() => lastSnapshot = null;
+
+    /// <summary>
+    /// A hash of every raw value <see cref="Read"/> goes on to use. Allocation-free, and cheap next to building the snapshot.
+    /// </summary>
+    private static ulong Signature(ClientTable* table, in Player me, int mySeat)
+    {
+        var h = 14695981039346656037UL;
+        void Add(ulong v) => h = (h ^ v) * 1099511628211UL;
+
+        Add((ulong)mySeat);
+        Add(me.HandTileCount < 0 ? 0 : (uint)me.HandTileCount);
+        Add(me.CanRiichi ? 1UL : 0UL);
+        var handTiles = me.HandTiles;
+        for (var i = 0; i < handTiles.Length; i++) Add(handTiles[i]);
+        Add(table->DrawnTile.Seat); Add(table->DrawnTile.Tile); Add(table->DrawnTile.Flags);
+        Add(table->LastDiscard.Seat); Add(table->LastDiscard.Tile); Add(table->LastDiscard.Flags);
+
+        var board = table->Board;
+        if (board == null) return h;
+        for (var seat = 0; seat < 4; seat++)
+        {
+            ref var meldList = ref board->MeldLists[seat];
+            var meldCount = Math.Clamp(meldList.Count, 0, meldList.Melds.Length);
+            Add((ulong)meldCount);
+            for (var m = 0; m < meldCount; m++)
+            {
+                Add((ulong)meldList.Melds[m].Type);
+                foreach (var t in meldList.Melds[m].Tiles) Add(t);
+            }
+
+            ref var pile = ref board->DiscardPiles[seat];
+            var pileCount = Math.Clamp(pile.Count, 0, pile.Tiles.Length);
+            Add((ulong)pileCount);
+            for (var d = 0; d < pileCount; d++)
+            {
+                Add(pile.Tiles[d]);
+                Add(pile.Flags[d]);
+            }
+        }
+
+        ref var round = ref board->RoundState;
+        Add((ulong)round.RoundWind); Add((ulong)round.Dealer); Add((ulong)round.Honba); Add((ulong)round.RiichiSticks);
+        Add((ulong)round.WallTilesRemaining); Add((ulong)round.StartSeatOffset);
+        var doraCount = Math.Clamp(round.DoraIndicatorCount, 0, round.DoraIndicators.Length);
+        Add((ulong)doraCount);
+        for (var i = 0; i < doraCount; i++) Add(round.DoraIndicators[i]);
+        for (var seat = 0; seat < 4; seat++)
+        {
+            Add((ulong)round.IsRiichi[seat]);
+            Add((ulong)round.Points[seat]);
+        }
+        return h;
     }
 
     private static string? lastDrawState;

@@ -178,6 +178,7 @@ public class CoachWindow : Window, IDisposable
             case ({ IsTenpai: true }, { } waits):
                 ImGui.TextColored(TileWidgets.Good, $"Tenpai{formNote}. Waiting on {waits.Sum(x => x.Remaining)} unseen tiles:");
                 TileWidgets.Row(waits.Select(x => x.Kind), "wait");
+                DrawWaitYaku(a);
                 if (waits.All(x => x.Remaining == 0))
                     ImGui.TextColored(TileWidgets.Bad, "Every copy of your waits is already visible. This wait can't win.");
                 break;
@@ -188,6 +189,24 @@ public class CoachWindow : Window, IDisposable
                 if (a.Acceptances is { Count: > 0 } acc)
                     ImGui.TextColored(TileWidgets.Muted, $"{acc.Sum(x => x.Remaining)} unseen tiles would improve your hand.");
                 break;
+        }
+    }
+
+    private static void DrawWaitYaku(HandAnalysis a)
+    {
+        var closed = a.Snapshot.MyMelds.All(m => m.IsConcealedKan);
+        foreach (var w in a.WaitReadings.Where(w => w.Remaining > 0))
+        {
+            var reading = w.Ron.HasYaku ? w.Ron : w.Tsumo;
+            if (reading.HasYaku)
+            {
+                var names = string.Join(", ", reading.Yaku.Select(y => $"{y.Name} {y.Han}"));
+                ImGui.TextColored(TileWidgets.Muted, $"  {Tiles.Short(w.Kind)}: {reading.Han} han ({names})");
+            }
+            else
+                ImGui.TextColored(TileWidgets.Bad, $"  {Tiles.Short(w.Kind)}: no yaku, so it can't win.");
+            if (closed && !w.Ron.HasYaku && w.Tsumo.HasYaku)
+                ImGui.TextColored(TileWidgets.Warn, $"  {Tiles.Short(w.Kind)}: no yaku on another player's discard unless you declare riichi. Winning it yourself works.");
         }
     }
 
