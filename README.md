@@ -6,7 +6,7 @@ Ukeire does not play for you. It does not click, discard or call. It reads only 
 
 ## Status
 
-This plugin is under development. Not every feature has been verified in game. Report anything that behaves incorrectly, and include the output of the Debug tab.
+This plugin is under development. Not every feature has been verified in game. Report anything that behaves incorrectly.
 
 ## Features
 
@@ -28,7 +28,7 @@ Han is counted for yaku only. Dora, ura-dora, ippatsu, haitei, rinshan, chankan 
 * `/ukeire` opens or closes the tutor window.
 * `/ukeire config` opens the settings.
 
-The window has six tabs:
+The window has five tabs. Debug builds add a sixth, Debug tab.
 
 | Tab | Contents |
 | --- | --- |
@@ -37,13 +37,12 @@ The window has six tabs:
 | Review | The review of each discard and call. |
 | History | Completed games and their statistics. |
 | Learn | Lessons on shanten, yaku, defense and the rules specific to Doman Mahjong. |
-| Debug | The raw values read from the game. Use it when reporting a problem. |
 
 Open the settings and set the options you want before your first game. Disable the shanten display and the defense ratings if you want to practise reading them yourself.
 
 ### Tile design
 
-The plugin draws tiles with the game's own icons. Set the Tile design option in the settings to Traditional, Doman or Alternate to choose a design. The "Match the game" option attempts to follow the design selected in the Mahjong settings of the game. That option is not reliable yet. Select a design manually if it draws the wrong one.
+The plugin draws tiles with the game's own icons. Set the Tile design option in the settings to Traditional, Doman or Alternate to choose a design. The "Match the game" option follows the design selected in the Mahjong settings of the game. It has been verified with Doman only. Select a design manually if it draws the wrong one.
 
 ## Building
 

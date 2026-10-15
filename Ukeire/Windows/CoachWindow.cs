@@ -59,8 +59,10 @@ public class CoachWindow : Window, IDisposable
         var learnFlags = jumpToLesson != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
         using (var tab = ImRaii.TabItem("Learn", learnFlags))
             if (tab.Success) DrawLearn(snap, analysis);
+#if DEBUG
         using (var tab = ImRaii.TabItem("Debug"))
             if (tab.Success) DrawDebug(snap);
+#endif
     }
 
     private string SeatName(TableSnapshot snap, int seat) => RelativeSeat[(seat - snap.LocalSeat + 4) & 3];
@@ -718,6 +720,7 @@ public class CoachWindow : Window, IDisposable
         }
     }
 
+#if DEBUG
     private void DrawDebug(TableSnapshot snap)
     {
         ImGui.TextColored(TileWidgets.Muted, "Raw data read from the table. Useful for mapping unknown flags.");
@@ -753,4 +756,5 @@ public class CoachWindow : Window, IDisposable
             ImGui.TreePop();
         }
     }
+#endif
 }

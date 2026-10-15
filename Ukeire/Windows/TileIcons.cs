@@ -69,6 +69,7 @@ public static class TileIcons
     private static string? lastLoggedSettings;
 
     /// <summary>Logs the module's settings block whenever it changes, so the byte that follows the game's tile design can be found.</summary>
+    [System.Diagnostics.Conditional("DEBUG")]
     public static void LogSettingChanges()
     {
         var bytes = ReadModuleSettings();
@@ -82,8 +83,8 @@ public static class TileIcons
     {
         TileDesign.FollowGame => ReadTileSet() switch
         {
-            1 => TileDesign.Doman,
-            2 => TileDesign.Alternate,
+            0 => TileDesign.Doman,
+            1 => TileDesign.Alternate,
             _ => TileDesign.Traditional,
         },
         _ => chosen,
