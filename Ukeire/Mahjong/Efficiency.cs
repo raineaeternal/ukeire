@@ -71,6 +71,9 @@ public static class Efficiency
         if (c != 0) return c;
         c = b.UkeireTotal.CompareTo(a.UkeireTotal);
         if (c != 0) return c;
+        // Same tile count: more distinct kinds means the draws are spread across more waits.
+        c = b.UkeireKinds.CompareTo(a.UkeireKinds);
+        if (c != 0) return c;
         c = b.GoodShapeScore.CompareTo(a.GoodShapeScore);
         if (c != 0) return c;
         // Prefer letting go of honors and terminals first when everything else ties.
