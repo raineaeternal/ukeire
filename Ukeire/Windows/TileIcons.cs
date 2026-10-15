@@ -1,4 +1,6 @@
-using Dalamud.Game.Config;
+using System;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Ukeire.Mahjong;
 
 namespace Ukeire.Windows;
@@ -24,30 +26,66 @@ public static class TileIcons
     private const uint AlternateBase = 76080;
 
     /// <summary>
-    /// Bit of UiConfig EmjSetting that is assumed to select the Doman tile design. Unconfirmed: the raw value is on
-    /// the Debug tab so it can be checked by switching the design in the game's Mahjong settings.
+    /// Offsets from FFXIVClientStructs' ida data (Client::UI::Misc::EmjModule). The struct isn't in the C# half of the
+    /// submodule yet, so it is read by offset: UIModule vtable slot 45 is GetEmjModule, and TileSet is a byte at 72.
     /// </summary>
-    private const uint DomanDesignBit = 1u << 0;
+    private const int GetEmjModuleVtableSlot = 45;
+    private const int EmjModuleTileSetOffset = 72;
 
-    private const string EmjSettingName = "EmjSetting";
+    private const int EmjModuleSettingsLength = 14;
 
-    /// <summary>The raw EmjSetting value and the config section it was found in, or null if it couldn't be read.</summary>
-    public static (uint Value, string Section)? ReadGameSetting()
+    /// <summary>The EmjModule settings block (bytes 72 to 85: TileSet through EmjCostumeId), or null if it can't be read. Framework thread only.</summary>
+    public static unsafe byte[]? ReadModuleSettings()
     {
-        // Dalamud has no enum member for it, so look it up by name in each section.
-        (string Name, GameConfigSection Section)[] sections =
-            [("UiConfig", Plugin.GameConfig.UiConfig), ("UiControl", Plugin.GameConfig.UiControl), ("System", Plugin.GameConfig.System)];
-        foreach (var (name, section) in sections)
-            if (section.TryGetUInt(EmjSettingName, out var value)) return (value, name);
-        return null;
+        var ui = UIModule.Instance();
+        if (ui == null) return null;
+        var getEmjModule = (delegate* unmanaged<UIModule*, byte*>)(*(nint**)ui)[GetEmjModuleVtableSlot];
+        var module = getEmjModule(ui);
+        if (module == null) return null;
+        var bytes = new byte[EmjModuleSettingsLength];
+        for (var i = 0; i < bytes.Length; i++) bytes[i] = module[EmjModuleTileSetOffset + i];
+        return bytes;
     }
 
-    /// <summary>The raw EmjSetting value, or null if it couldn't be read.</summary>
-    public static uint? GameSetting => ReadGameSetting()?.Value;
+    /// <summary>The Mahjong settings' tile set (0 Traditional, 1 Doman, 2 the unnamed third set), or null if it can't be read.</summary>
+    public static byte? ReadTileSet() => ReadModuleSettings()?[0];
+
+    /// <summary>
+    /// The game copies EmjVoiceNpc and EmjCostumeId from the module into EmjGame when a table starts. If both agree
+    /// with what was read from the module, the module (and so its TileSet) is the right object.
+    /// </summary>
+    public static unsafe string CrossCheck()
+    {
+        var bytes = ReadModuleSettings();
+        var agent = AgentEmj.Instance();
+        if (bytes == null) return "module unreadable";
+        if (agent == null || agent->Game == null) return "no table to compare with";
+        var (voice, costume) = (bytes[12], bytes[13]);
+        var game = agent->Game;
+        var match = voice == game->EmjVoiceNpc && costume == game->EmjCostumeId;
+        return $"module voice {voice} costume {costume} vs table voice {game->EmjVoiceNpc} costume {game->EmjCostumeId}: {(match ? "match" : "MISMATCH")}";
+    }
+
+    private static string? lastLoggedSettings;
+
+    /// <summary>Logs the module's settings block whenever it changes, so the byte that follows the game's tile design can be found.</summary>
+    public static void LogSettingChanges()
+    {
+        var bytes = ReadModuleSettings();
+        var text = bytes == null ? "unreadable" : Convert.ToHexString(bytes);
+        if (text == lastLoggedSettings) return;
+        lastLoggedSettings = text;
+        Plugin.Log.Information($"[tiles] EmjModule bytes 72-85 = {text}; Follow Game draws {Resolve(TileDesign.FollowGame)}; {CrossCheck()}");
+    }
 
     public static TileDesign Resolve(TileDesign chosen) => chosen switch
     {
-        TileDesign.FollowGame => (GameSetting & DomanDesignBit) is > 0 ? TileDesign.Doman : TileDesign.Traditional,
+        TileDesign.FollowGame => ReadTileSet() switch
+        {
+            1 => TileDesign.Doman,
+            2 => TileDesign.Alternate,
+            _ => TileDesign.Traditional,
+        },
         _ => chosen,
     };
 

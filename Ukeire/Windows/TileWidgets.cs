@@ -43,11 +43,11 @@ public static class TileWidgets
     /// <summary>
     /// Draws one tile using the game's own tile icon for the current <see cref="Design"/>. Returns true when clicked.
     /// Falls back to a coloured chip with the tile's short name while the icon loads.
+    /// <paramref name="details"/> draws a custom tooltip in place of the tile's name.
     /// </summary>
-    public static bool Tile(int kind, string id, bool red = false, Vector4? outline = null)
+    public static bool Tile(int kind, string id, bool red = false, Vector4? outline = null, Action? details = null)
     {
-        // The game's tile icons are 40x52.
-        var size = new Vector2(34, 44) * ImGuiHelpers.GlobalScale;
+        var size = new Vector2(40, 52) * ImGuiHelpers.GlobalScale;
         var pos = ImGui.GetCursorScreenPos();
         var clicked = ImGui.InvisibleButton($"##{id}", size);
         var hovered = ImGui.IsItemHovered();
@@ -68,7 +68,13 @@ public static class TileWidgets
         if (hovered) drawList.AddRectFilled(pos, pos + size, 0x30FFFFFF, rounding);
         if (outline.HasValue) drawList.AddRect(pos, pos + size, ImGui.GetColorU32(outline.Value), rounding, ImDrawFlags.None, 2f * ImGuiHelpers.GlobalScale);
 
-        if (hovered)
+        if (hovered && details != null)
+        {
+            // The caller's own tooltip replaces the default name one.
+            using var tip = ImRaii.Tooltip();
+            details();
+        }
+        else if (hovered)
             ImGui.SetTooltip(red ? $"{Tiles.Name(kind)} (red five, dora)" : Tiles.Name(kind));
         return clicked;
     }

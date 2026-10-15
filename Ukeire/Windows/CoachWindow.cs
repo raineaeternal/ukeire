@@ -37,6 +37,7 @@ public class CoachWindow : Window, IDisposable
     public override void PreDraw()
     {
         TileWidgets.Design = TileIcons.Resolve(Config.TileDesign);
+        TileIcons.LogSettingChanges();
     }
 
     public override void Draw()
@@ -94,6 +95,7 @@ public class CoachWindow : Window, IDisposable
             return;
         }
 
+        DrawRiichiDefense(a);
         if (Config.ExplainCalls) DrawCalls(a);
         if (Config.ShowShanten) DrawStatus(a);
         DrawWarnings(a);
@@ -227,11 +229,58 @@ public class CoachWindow : Window, IDisposable
             ImGui.TextColored(TileWidgets.Bad, "Your hand is open but has no yaku in reach. It can't win as it stands.");
             ExplainButton("yaku");
         }
-        if (a.Threats.Count > 0)
+    }
+
+    /// <summary>
+    /// Shown at the top of the Table page while anyone is in riichi: how safe each tile in the player's hand is
+    /// against everyone who declared, safest first. The Defense tab has the per-opponent detail.
+    /// </summary>
+    private void DrawRiichiDefense(HandAnalysis a)
+    {
+        if (a.Threats.Count == 0) return;
+        var snap = a.Snapshot;
+        var who = string.Join(" and ", a.Threats.Select(t => SeatName(snap, t.Seat)));
+        ImGui.TextColored(TileWidgets.Bad, $"{who} {(a.Threats.Count == 1 ? "is" : "are")} in riichi.");
+        ExplainButton("pushfold");
+
+        var pushing = a.Shanten.Value switch
         {
-            ImGui.TextColored(TileWidgets.Warn, $"{string.Join(", ", a.Threats.Select(t => SeatName(a.Snapshot, t.Seat)))} declared riichi. Check the Defense tab before pushing.");
-            ExplainButton("pushfold");
+            <= 0 => "You're tenpai, so pushing can be right if the wait is good and the hand is worth it.",
+            1 => "You're one tile from tenpai. Push only with a valuable hand or a safe route; otherwise fold.",
+            _ => "You're far from tenpai, so folding is usually right: discard the safest tiles below.",
+        };
+        ImGui.TextWrapped(pushing);
+
+        if (!Config.ShowDefense)
+        {
+            ImGui.TextColored(TileWidgets.Muted, "Defense ratings are hidden in the settings.");
+            ImGui.Separator();
+            return;
         }
+
+        // The worst rating against any one riichi player decides a tile's colour, so green means safe against all of them.
+        var readings = a.Threats[0].Tiles
+            .Select(r => (r.Kind, Level: a.DangerOf(r.Kind) ?? SafetyLevel.Dangerous))
+            .OrderBy(r => r.Level).ThenBy(r => r.Kind)
+            .ToList();
+        ImGui.TextColored(TileWidgets.Muted, "Your tiles, safest first (hover for why):");
+        for (var i = 0; i < readings.Count; i++)
+        {
+            if (i > 0) ImGui.SameLine(0, 2 * ImGuiHelpers.GlobalScale);
+            var (kind, level) = readings[i];
+            TileWidgets.Tile(kind, $"def{i}", red: snap.RedFives[kind] > 0, outline: TileWidgets.SafetyColor(level), details: () =>
+            {
+                ImGui.TextColored(TileWidgets.SafetyColor(level), $"{Tiles.Name(kind)}: {level}");
+                foreach (var threat in a.Threats)
+                {
+                    var reading = threat.Tiles.First(x => x.Kind == kind);
+                    ImGui.TextColored(TileWidgets.Muted, $"{SeatName(snap, threat.Seat)} ({reading.Level}):");
+                    using var wrap = ImRaii.TextWrapPos(ImGui.GetFontSize() * 30);
+                    ImGui.TextUnformatted(reading.Reason);
+                }
+            });
+        }
+        ImGui.Separator();
     }
 
     /// <summary>A small button after the last item that switches to the Learn tab with this lesson open.</summary>
@@ -673,9 +722,10 @@ public class CoachWindow : Window, IDisposable
     {
         ImGui.TextColored(TileWidgets.Muted, "Raw data read from the table. Useful for mapping unknown flags.");
         ImGui.TextUnformatted($"Status: {snap.Status}  Active: {snap.IsActive}  Local seat: {snap.LocalSeat}");
-        var emj = TileIcons.ReadGameSetting();
-        ImGui.TextUnformatted($"EmjSetting: {(emj is { } e ? $"{e.Value} (0b{Convert.ToString(e.Value, 2)}) in {e.Section}" : "unreadable")}  Tile design drawn: {TileWidgets.Design}");
-        TileWidgets.HelpMarker("Switch the tile design in the game's Doman Mahjong settings and watch which bit changes. That bit is what \"Match the game\" should read.");
+        var tileSet = TileIcons.ReadTileSet();
+        ImGui.TextUnformatted($"EmjModule.TileSet: {(tileSet is { } t ? t.ToString() : "unreadable")}  Tile design drawn: {TileWidgets.Design}");
+        ImGui.TextColored(TileWidgets.Muted, TileIcons.CrossCheck());
+        TileWidgets.HelpMarker("The tile set picked in the game's Doman Mahjong settings. 0 is drawn as Traditional, 1 as Doman, 2 as the third set.");
         if (!snap.IsActive) return;
         ImGui.TextUnformatted($"Hand tiles: {snap.HandTileCount}  Melds: {snap.OpenMeldCount}  Discard turn: {snap.IsDiscardTurn}  Game says can riichi: {snap.GameSaysCanRiichi}");
         ImGui.TextUnformatted($"Hand: {Tiles.Notation(snap.Hand)}  Drawn: {(snap.DrawnTile >= 0 ? Tiles.Short(snap.DrawnTile) : "-")}");
